@@ -268,10 +268,14 @@ test_langchain/
 │   ├── visualization.py           # Rich + PyVis rendering
 │   ├── observability.py           # Phoenix tracing
 │   └── config.py                  # Configuration
+├── docs/                          # Documentation
+│   ├── ARCHITECTURE_DIAGRAM.txt   # System architecture
+│   ├── HIERARCHICAL_AGENTS.md     # Multi-level delegation
+│   ├── IMPLEMENTATION_SUMMARY.md  # Technical details
+│   ├── PARALLEL_EXECUTION.md      # Parallelization system
+│   └── VISUALIZATION.md           # Graph & observability
 ├── execution_graphs/              # Generated HTML graphs
 ├── requirements.txt               # Dependencies
-├── HIERARCHICAL_AGENTS.md         # Architecture docs
-├── VISUALIZATION.md               # Visualization guide
 └── README.md                      # This file
 ```
 
@@ -317,7 +321,17 @@ python -m src.main
 | 4 researchers + analysis | ~15s | ~4s | 3.75x |
 | 8 diverse agents (4 parallel) | ~30s | ~8s | 3.75x |
 
-## 🔮 Future Enhancements
+## � Documentation
+
+Additional documentation is available in the [`docs/`](docs/) directory:
+
+- **[Architecture Diagram](docs/ARCHITECTURE_DIAGRAM.txt)** - Visual representation of system components
+- **[Hierarchical Agents](docs/HIERARCHICAL_AGENTS.md)** - Deep dive into multi-level agent delegation
+- **[Implementation Summary](docs/IMPLEMENTATION_SUMMARY.md)** - Technical implementation details
+- **[Parallel Execution](docs/PARALLEL_EXECUTION.md)** - DAG-based parallelization system
+- **[Visualization](docs/VISUALIZATION.md)** - Graph generation and observability features
+
+## �🔮 Future Enhancements
 
 - [ ] Custom role creation from CLI
 - [ ] Persistent memory database (SQLite)
