@@ -397,6 +397,74 @@ class MetaAgentSystem:
         
         return output
     
+    async def execute_agent_for_langgraph(
+        self,
+        agent_id: str,
+        role: str,
+        task: str,
+        context: str,
+        layer: int = 0,
+        total_layers: int = 1,
+        agent_number: int = 1,
+        total_agents: int = 1
+    ) -> str:
+        """Execute a single agent for LangGraph integration.
+        
+        This is a simplified async interface for LangGraph nodes.
+        
+        Args:
+            agent_id: Unique agent identifier
+            role: Agent role name
+            task: Task for the agent
+            context: Context from dependencies
+            layer: Current layer index
+            total_layers: Total number of layers
+            agent_number: Agent number in overall sequence (1-indexed)
+            total_agents: Total number of agents
+            
+        Returns:
+            Agent output
+        """
+        # Get role definition
+        role_obj = self.role_library.get_role(role)
+        if not role_obj:
+            logger.error(f"Unknown role: {role}")
+            return f"[ERROR: Unknown role '{role}']"
+        
+        # Display progress
+        self.visualizer.display_execution_progress(
+            current_step=agent_number,
+            total_steps=total_agents,
+            role=role,
+            task=task,
+            status="running",
+            layer=layer + 1,  # 1-indexed for display
+            total_layers=total_layers
+        )
+        
+        # Parse context to extract previous outputs
+        previous_outputs = []
+        if context and context != "No dependencies":
+            # Context format: "From agent_id:\noutput\n\nFrom agent_id2:\noutput2"
+            parts = context.split("\n\n")
+            for part in parts:
+                if part.startswith("From "):
+                    # Extract the output part
+                    lines = part.split("\n", 1)
+                    if len(lines) > 1:
+                        previous_outputs.append(lines[1])
+        
+        # Execute in thread pool
+        loop = asyncio.get_event_loop()
+        output = await loop.run_in_executor(
+            None,
+            self._execute_agent,
+            role_obj, task, task, previous_outputs, 0, 3
+        )
+        
+        logger.info(f"✅ {agent_id} ({role}) completed")
+        return output
+    
     def _execute_agent(self, role, task: str, original_query: str, previous_outputs: List[str], depth: int = 0, max_depth: int = 3) -> str:
         """Execute a single agent.
         

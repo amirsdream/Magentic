@@ -260,14 +260,18 @@ Required JSON format:
 Rules:
 - ⚠️ ONLY use roles from the list above - NO made-up roles!
 - BE EFFICIENT with agent count - use minimum needed
-- Avoid duplicating roles unless truly necessary (e.g., 2 researchers for parallel topics is OK)
+- ⚠️ CRITICAL: Each agent must have a UNIQUE, NON-OVERLAPPING task
+- ⚠️ NEVER create multiple agents doing the same or similar work
+- Avoid duplicating roles unless tasks are TRULY DIFFERENT (e.g., researching "Python" vs "Rust" is OK, but NOT "Python web" and "Python frameworks")
 - For simple factual questions, use JUST 1 agent
 - Break complex tasks into specialized steps (each step = 1 agent)
-- Use 2-4 agents for typical tasks, 6+ only for genuinely complex ones
-- For very complex tasks (8+ agents needed), consider using coordinator/planner for delegation
-- Last agent should usually be "synthesizer" only if combining multiple outputs
-- Each agent gets ONE specific focused task
+- Use 1-2 agents for simple queries, 3-4 for moderate, 5-6 MAX for complex
+- ONLY use 7+ agents if absolutely necessary for genuinely complex multi-domain tasks
+- For very complex tasks, prefer using coordinator/planner for delegation instead of many agents
+- Last agent should usually be "synthesizer" only if combining 3+ outputs
+- Each agent gets ONE specific focused task that doesn't overlap with others
 - Only use "researcher" if web search is truly needed
+- ⚠️ Quality over quantity: 3 focused agents > 6 redundant agents
 
 PARALLELIZATION RULES:
 - Use "depends_on": [] ONLY for truly independent tasks (e.g., researching different topics)
@@ -286,53 +290,36 @@ Simple (1-2 agents):
 
 Moderate with PARALLELISM (2-4 agents):
 "Plan a 3-day trip to Paris" → {{"description": "Travel planning", "agents": [
-  {{"role": "researcher", "task": "Research Paris attractions and hotels", "depends_on": []}},
-  {{"role": "planner", "task": "Create detailed 3-day itinerary", "depends_on": [0]}},
-  {{"role": "writer", "task": "Format travel plan with tips", "depends_on": [1]}},
-  {{"role": "synthesizer", "task": "Compile final travel guide", "depends_on": [2]}}
+  {{"role": "researcher", "task": "Research Paris attractions, hotels, and logistics", "depends_on": []}},
+  {{"role": "planner", "task": "Create detailed 3-day itinerary with schedule", "depends_on": [0]}},
+  {{"role": "writer", "task": "Format complete travel guide with tips", "depends_on": [1]}}
 ]}}
 
-GOOD PARALLELISM - Multiple Independent Analyses:
-"Analyze the impact of AI on society, economy, and politics" → {{"description": "AI impact analysis", "agents": [
-  {{"role": "researcher", "task": "Research AI's impact on society and culture", "depends_on": []}},
-  {{"role": "researcher", "task": "Research AI's impact on economy and jobs", "depends_on": []}},
-  {{"role": "researcher", "task": "Research AI's impact on politics and governance", "depends_on": []}},
-  {{"role": "analyzer", "task": "Analyze societal implications", "depends_on": [0]}},
-  {{"role": "analyzer", "task": "Analyze economic implications", "depends_on": [1]}},
-  {{"role": "analyzer", "task": "Analyze political implications", "depends_on": [2]}},
-  {{"role": "synthesizer", "task": "Combine all analyses into comprehensive report", "depends_on": [3, 4, 5]}}
+GOOD PARALLELISM - Truly Different Topics (3-5 agents):
+"Compare Python vs Rust for web development" → {{"description": "Programming comparison", "agents": [
+  {{"role": "researcher", "task": "Research Python web frameworks and ecosystem", "depends_on": []}},
+  {{"role": "researcher", "task": "Research Rust web frameworks and ecosystem", "depends_on": []}},
+  {{"role": "analyzer", "task": "Compare performance, ecosystem, and developer experience", "depends_on": [0, 1]}},
+  {{"role": "synthesizer", "task": "Compile comprehensive comparison with recommendations", "depends_on": [2]}}
 ]}}
-NOTE: Layer 0: [0,1,2] researchers in PARALLEL → Layer 1: [3,4,5] analyzers in PARALLEL → Layer 2: [6] synthesizer WAITS for all!
-⚠️ CRITICAL: Synthesizer at index 6 is LAST and depends on [3,4,5] - this is CORRECT!
+NOTE: Layer 0: [0,1] researchers in PARALLEL → Layer 1: [2] analyzer → Layer 2: [3] synthesizer
 
-Complex with MAXIMUM PARALLELISM (5-8 agents):
-"Create a business plan with market research and financial projections" → {{"description": "Comprehensive business planning", "agents": [
-  {{"role": "researcher", "task": "Market research and competitor analysis", "depends_on": []}},
-  {{"role": "researcher", "task": "Industry trends and customer research", "depends_on": []}},
-  {{"role": "analyzer", "task": "Analyze market opportunities and threats", "depends_on": [0, 1]}},
-  {{"role": "planner", "task": "Create business strategy and roadmap", "depends_on": [2]}},
-  {{"role": "analyzer", "task": "Financial projections and budgeting", "depends_on": [2]}},
-  {{"role": "writer", "task": "Write executive summary", "depends_on": [3, 4]}},
-  {{"role": "critic", "task": "Review and identify gaps", "depends_on": [5]}},
-  {{"role": "synthesizer", "task": "Compile complete business plan", "depends_on": [6]}}
+Complex with MAXIMUM PARALLELISM (5-6 agents MAX):
+"Create a business plan with market research and financial projections" → {{"description": "Business planning", "agents": [
+  {{"role": "researcher", "task": "Complete market research: competitors, trends, customers", "depends_on": []}},
+  {{"role": "analyzer", "task": "Analyze market opportunities, threats, and strategy", "depends_on": [0]}},
+  {{"role": "analyzer", "task": "Create financial projections and budget analysis", "depends_on": [0]}},
+  {{"role": "planner", "task": "Design business strategy and execution roadmap", "depends_on": [1, 2]}},
+  {{"role": "writer", "task": "Write complete business plan document", "depends_on": [3]}},
+  {{"role": "critic", "task": "Review plan and refine with improvements", "depends_on": [4]}}
 ]}}
-NOTE: Agents 0,1 run in parallel, then 2 waits for both, then 3,4 run in parallel, etc.
+NOTE: 1 researcher → 2 parallel analyzers → 1 planner → 1 writer → 1 critic (6 agents total)
 
-Very Complex with HIERARCHICAL PARALLELISM (8+ agents):
-"Build a complete software architecture with frontend, backend, database, and deployment" → {{"description": "Software architecture design", "agents": [
-  {{"role": "researcher", "task": "Research frontend frameworks and best practices", "depends_on": []}},
-  {{"role": "researcher", "task": "Research backend architectures and APIs", "depends_on": []}},
-  {{"role": "researcher", "task": "Research database options and scaling", "depends_on": []}},
-  {{"role": "researcher", "task": "Research deployment and CI/CD tools", "depends_on": []}},
-  {{"role": "analyzer", "task": "Analyze frontend architecture requirements", "depends_on": [0]}},
-  {{"role": "analyzer", "task": "Analyze backend architecture requirements", "depends_on": [1]}},
-  {{"role": "analyzer", "task": "Analyze data layer requirements", "depends_on": [2]}},
-  {{"role": "planner", "task": "Design overall system architecture", "depends_on": [4, 5, 6]}},
-  {{"role": "writer", "task": "Document deployment strategy", "depends_on": [3, 7]}},
-  {{"role": "critic", "task": "Review architecture for scalability", "depends_on": [7, 8]}},
-  {{"role": "synthesizer", "task": "Compile complete architecture document", "depends_on": [9]}}
-]}}
-NOTE: Agents 0,1,2,3 all run in parallel (4 concurrent tasks), creating maximum efficiency!
+⚠️ AVOID THIS - TOO MANY REDUNDANT AGENTS:
+BAD: "Research AI" with 5 different researchers all searching similar topics
+BAD: Multiple analyzers doing overlapping analysis
+BAD: Using synthesizer when you only have 1-2 outputs
+GOOD: Each agent has distinct, unique purpose with no overlap
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 NOW OUTPUT YOUR PLAN AS JSON ONLY - START WITH {{ AND END WITH }}
@@ -421,11 +408,16 @@ NOW OUTPUT YOUR PLAN AS JSON ONLY - START WITH {{ AND END WITH }}
             if not plan_data.get("agents"):
                 raise ValueError("No agents in plan")
             
-            # GUARDRAIL: Limit number of agents
+            # GUARDRAIL: Limit number of agents based on complexity
+            agent_count = len(plan_data.get("agents", []))
             max_agents = 10 if depth == 0 else 5  # Fewer agents for deeper levels
-            if len(plan_data.get("agents", [])) > max_agents:
-                logger.warning(f"⚠️ Plan has {len(plan_data['agents'])} agents, limiting to {max_agents}")
+            
+            if agent_count > max_agents:
+                logger.warning(f"⚠️ Plan has {agent_count} agents, limiting to {max_agents}")
                 plan_data["agents"] = plan_data["agents"][:max_agents]
+            elif agent_count > 6:
+                logger.warning(f"⚠️ Plan has {agent_count} agents - this may be excessive")
+                logger.warning(f"   Consider consolidating similar agents or using fewer, more focused agents")
             
             # Create execution plan with delegation info AND VALIDATION
             agents = []
@@ -584,7 +576,29 @@ NOW OUTPUT YOUR PLAN AS JSON ONLY - START WITH {{ AND END WITH }}
                     logger.warning(f"⚠️ Synthesizer at position {i} has no dependencies")
                     return False
         
-        # Check 2: No circular dependencies (basic check)
+        # Check 2: Detect redundant agents (same role with similar tasks)
+        seen_tasks = {}
+        for i, agent in enumerate(agents):
+            role = agent.get('role', '')
+            task = agent.get('task', '').lower()
+            task_key = f"{role}:{task[:50]}"  # First 50 chars
+            
+            # Check for very similar tasks in same role
+            for existing_key in seen_tasks:
+                if existing_key.startswith(f"{role}:"):
+                    existing_task = existing_key.split(":", 1)[1]
+                    # Simple similarity check (shared words)
+                    task_words = set(task.split())
+                    existing_words = set(existing_task.split())
+                    overlap = len(task_words & existing_words) / max(len(task_words), len(existing_words))
+                    if overlap > 0.6:  # 60% word overlap = likely redundant
+                        logger.warning(f"⚠️ Agent {i} ({role}) seems redundant with agent {seen_tasks[existing_key]}")
+                        logger.warning(f"   Task 1: {existing_task[:80]}")
+                        logger.warning(f"   Task 2: {task[:80]}")
+            
+            seen_tasks[task_key] = i
+        
+        # Check 3: No circular dependencies (basic check)
         for i, agent in enumerate(agents):
             depends_on = agent.get('depends_on', [])
             # Convert to list if single value
