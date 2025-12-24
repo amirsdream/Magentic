@@ -19,6 +19,7 @@ class Config:
         )
         self.log_file: str = os.getenv("LOG_FILE", "agent.log")
         self.log_level: str = os.getenv("LOG_LEVEL", "INFO")
+        self.max_parallel_agents: int = int(os.getenv("MAX_PARALLEL_AGENTS", "3"))
 
     def validate(self) -> tuple[bool, Optional[str]]:
         """Validate configuration values.
@@ -34,6 +35,9 @@ class Config:
         
         if self.max_input_length < 1:
             return False, "MAX_INPUT_LENGTH must be positive"
+        
+        if self.max_parallel_agents < 1:
+            return False, "MAX_PARALLEL_AGENTS must be positive"
         
         return True, None
 

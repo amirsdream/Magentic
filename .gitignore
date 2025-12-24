@@ -50,3 +50,6 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+#dirs
+execution_graphs/

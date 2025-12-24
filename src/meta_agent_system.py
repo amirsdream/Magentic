@@ -2,6 +2,7 @@
 
 import logging
 import json
+import asyncio
 from typing import Dict, Any, List
 from pathlib import Path
 
@@ -42,6 +43,9 @@ class MetaAgentSystem:
         self.visualizer = ExecutionVisualizer()
         # Hierarchical execution settings - dynamic based on query complexity
         self.absolute_max_depth = 5  # Safety limit to prevent infinite recursion
+        # Concurrency control - limit parallel agents to prevent system overload
+        self.max_parallel_agents = config.max_parallel_agents
+        self._semaphore = asyncio.Semaphore(self.max_parallel_agents)
     
     def process_query(self, query: str, depth: int = 0, max_depth: int | None = None) -> Dict[str, Any]:
         """Process a query using dynamic agent creation.
@@ -72,52 +76,47 @@ class MetaAgentSystem:
         if depth == 0:
             self.visualizer.display_plan_tree(plan.description, plan.agents, depth=depth, max_depth=max_depth)
         
-        # Step 2: Execute plan sequentially
-        trace = []
-        outputs = []
+        # Step 2: Execute plan with DAG-based parallelization
+        execution_layers = plan.get_execution_layers()
+        logger.info("")
+        logger.info("🔀" + "="*70)
+        logger.info(f"🔀 PARALLEL EXECUTION: {len(execution_layers)} layers total")
+        logger.info("🔀" + "="*70)
+        for layer_idx, layer in enumerate(execution_layers):
+            layer_agents = [plan.agents[i]['role'] for i in layer]
+            if len(layer) > 1:
+                logger.info(f"🔀 Layer {layer_idx}: ⚡ {len(layer)} agents IN PARALLEL - {layer_agents}")
+            else:
+                logger.info(f"🔀 Layer {layer_idx}: 1 agent (sequential) - {layer_agents}")
+        logger.info("🔀" + "="*70)
+        logger.info("")
         
-        for i, agent_spec in enumerate(plan.agents, 1):
-            role_name = agent_spec.get("role")
-            task = agent_spec.get("task")
-            
-            # Skip if missing required fields
-            if not role_name or not task:
-                logger.error(f"Invalid agent spec: {agent_spec}")
-                continue
-            
+        trace = []
+        outputs = {}  # Dictionary keyed by agent index for dependency resolution
+        
+        # Execute layer by layer
+        for layer_idx, agent_indices in enumerate(execution_layers):
             logger.info(f"\n{'='*60}")
-            logger.info(f"🤖 Step {i}: {role_name.upper()}")
-            logger.info(f"Task: {task}")
+            logger.info(f"🔀 LAYER {layer_idx + 1}/{len(execution_layers)}: Executing {len(agent_indices)} agents in parallel")
             logger.info(f"{'='*60}")
             
-            # Display progress
-            self.visualizer.display_execution_progress(
-                current_step=i,
-                total_steps=len(plan.agents),
-                role=role_name,
-                task=task,
-                status="running"
-            )
-            
-            # Get role definition
-            role = self.role_library.get_role(role_name)
-            if not role:
-                logger.error(f"Unknown role: {role_name}")
-                continue
-            
-            # Execute agent
-            output = self._execute_agent(role, task, query, outputs, depth=depth, max_depth=max_depth)
-            
-            outputs.append(output)
-            trace.append({
-                "step": i,
-                "role": role_name,
-                "task": task,
-                "output": output[:200] + "..." if len(output) > 200 else output
-            })
+            # Execute all agents in this layer in parallel
+            if len(agent_indices) == 1:
+                # Single agent - no parallelization needed
+                i = agent_indices[0]
+                output = self._execute_single_agent(
+                    i, plan.agents[i], plan.agents, outputs, query, depth, max_depth, trace
+                )
+                outputs[i] = output
+            else:
+                # Multiple agents - run in parallel using asyncio
+                layer_outputs = asyncio.run(self._execute_layer_parallel(
+                    agent_indices, plan.agents, outputs, query, depth, max_depth, trace
+                ))
+                outputs.update(layer_outputs)
         
-        # Final answer is the last output
-        final_answer = outputs[-1] if outputs else "No output generated"
+        # Final answer is the last output in execution order
+        final_answer = outputs[len(plan.agents) - 1] if outputs else "No output generated"
         
         # Update conversation history
         self.conversation_history.append({"role": "user", "content": query})
@@ -130,14 +129,237 @@ class MetaAgentSystem:
             "trace": trace,
             "plan": {
                 "description": plan.description,
-                "agents": [a["role"] for a in plan.agents]
-            }
+                "agents": [a["role"] for a in plan.agents],
+                "execution_layers": len(execution_layers),
+                "parallelization": f"{sum(len(layer) for layer in execution_layers)} total executions in {len(execution_layers)} layers"
+            },
+            "agents_spec": plan.agents,  # Full agent specifications with tasks and dependencies
+            "execution_layers": execution_layers  # For visualization
         }
         
         # Display summary
         self.visualizer.display_summary(result)
         
         return result
+    
+    def _execute_single_agent(
+        self, 
+        agent_index: int, 
+        agent_spec: Dict[str, Any], 
+        all_agents: List[Dict[str, Any]], 
+        completed_outputs: Dict[int, str],
+        query: str,
+        depth: int,
+        max_depth: int,
+        trace: List[Dict[str, Any]]
+    ) -> str:
+        """Execute a single agent and update trace.
+        
+        Args:
+            agent_index: Index of this agent in the plan.
+            agent_spec: Agent specification dict.
+            all_agents: All agents in the plan.
+            completed_outputs: Outputs from already-completed agents (keyed by index).
+            query: Original query.
+            depth: Current execution depth.
+            max_depth: Maximum execution depth.
+            trace: Execution trace list to update.
+            
+        Returns:
+            Agent's output.
+        """
+        role_name = agent_spec.get("role")
+        task = agent_spec.get("task")
+        
+        if not role_name or not task:
+            logger.error(f"Invalid agent spec: {agent_spec}")
+            return ""
+        
+        logger.info(f"🤖 Agent {agent_index}: {role_name.upper()}")
+        logger.info(f"   Task: {task}")
+        
+        # Display progress
+        self.visualizer.display_execution_progress(
+            current_step=agent_index + 1,
+            total_steps=len(all_agents),
+            role=role_name,
+            task=task,
+            status="running"
+        )
+        
+        # Get role definition
+        role = self.role_library.get_role(role_name)
+        if not role:
+            logger.error(f"Unknown role: {role_name}")
+            return ""
+        
+        # Collect outputs from dependencies
+        depends_on = agent_spec.get("depends_on", [])
+        previous_outputs = [completed_outputs[i] for i in depends_on if i in completed_outputs]
+        
+        # Get role definition
+        role = self.role_library.get_role(role_name)
+        if not role:
+            error_msg = f"Unknown role '{role_name}' - valid roles: {self.role_library.list_roles()}"
+            logger.error(f"❌ {error_msg}")
+            return f"[ERROR: {error_msg}]"
+        
+        # Execute agent
+        output = self._execute_agent(role, task, query, previous_outputs, depth=depth, max_depth=max_depth)
+        
+        # Update trace
+        trace.append({
+            "step": agent_index,
+            "role": role_name,
+            "task": task,
+            "depends_on": depends_on,
+            "parallel": False,  # Single agent execution (not in parallel layer)
+            "output": output[:200] + "..." if len(output) > 200 else output
+        })
+        
+        return output
+    
+    async def _execute_agent_with_limit(
+        self,
+        agent_index: int,
+        agent_spec: Dict[str, Any],
+        all_agents: List[Dict[str, Any]],
+        completed_outputs: Dict[int, str],
+        query: str,
+        depth: int,
+        max_depth: int
+    ) -> str:
+        """Execute agent with semaphore to limit concurrency.
+        
+        Args:
+            agent_index: Index of agent to execute.
+            agent_spec: Agent specification.
+            all_agents: All agents in the plan.
+            completed_outputs: Outputs from completed agents.
+            query: Original query.
+            depth: Current execution depth.
+            max_depth: Maximum execution depth.
+            
+        Returns:
+            Agent output.
+        """
+        async with self._semaphore:
+            logger.info(f"🔓 Agent {agent_index} acquired semaphore slot")
+            result = await self._execute_agent_async(
+                agent_index, agent_spec, all_agents, completed_outputs, query, depth, max_depth
+            )
+            logger.info(f"🔒 Agent {agent_index} released semaphore slot")
+            return result
+    
+    async def _execute_layer_parallel(
+        self,
+        agent_indices: List[int],
+        all_agents: List[Dict[str, Any]],
+        completed_outputs: Dict[int, str],
+        query: str,
+        depth: int,
+        max_depth: int,
+        trace: List[Dict[str, Any]]
+    ) -> Dict[int, str]:
+        """Execute multiple agents in parallel using asyncio.
+        
+        Args:
+            agent_indices: Indices of agents to execute in parallel.
+            all_agents: All agents in the plan.
+            completed_outputs: Outputs from already-completed agents.
+            query: Original query.
+            depth: Current execution depth.
+            max_depth: Maximum execution depth.
+            trace: Execution trace list to update.
+            
+        Returns:
+            Dictionary mapping agent index to output.
+        """
+        logger.info(f"⚡ Executing {len(agent_indices)} agents in parallel (max {self.max_parallel_agents} concurrent)...")
+        
+        # Create async tasks with semaphore limiting
+        tasks = []
+        for i in agent_indices:
+            task = asyncio.create_task(
+                self._execute_agent_with_limit(
+                    i, all_agents[i], all_agents, completed_outputs, query, depth, max_depth
+                )
+            )
+            tasks.append((i, task))
+        
+        # Wait for all tasks to complete
+        results = {}
+        for i, task in tasks:
+            output = await task
+            results[i] = output
+            
+            # Update trace
+            agent_spec = all_agents[i]
+            trace.append({
+                "step": i,
+                "role": agent_spec.get("role"),
+                "task": agent_spec.get("task"),
+                "depends_on": agent_spec.get("depends_on", []),
+                "parallel": True,
+                "output": output[:200] + "..." if len(output) > 200 else output
+            })
+        
+        return results
+    
+    async def _execute_agent_async(
+        self,
+        agent_index: int,
+        agent_spec: Dict[str, Any],
+        all_agents: List[Dict[str, Any]],
+        completed_outputs: Dict[int, str],
+        query: str,
+        depth: int,
+        max_depth: int
+    ) -> str:
+        """Async wrapper for executing an agent.
+        
+        Args:
+            agent_index: Index of this agent.
+            agent_spec: Agent specification.
+            all_agents: All agents in the plan.
+            completed_outputs: Outputs from completed agents.
+            query: Original query.
+            depth: Current execution depth.
+            max_depth: Maximum execution depth.
+            
+        Returns:
+            Agent's output.
+        """
+        role_name = agent_spec.get("role")
+        task = agent_spec.get("task")
+        
+        if not role_name or not task:
+            logger.error(f"Invalid agent spec: {agent_spec}")
+            return ""
+        
+        logger.info(f"⚡ [PARALLEL] Agent {agent_index}: {role_name.upper()}")
+        
+        # Get role definition
+        role = self.role_library.get_role(role_name)
+        if not role:
+            logger.error(f"Unknown role: {role_name}")
+            return ""
+        
+        # Collect outputs from dependencies
+        depends_on = agent_spec.get("depends_on", [])
+        previous_outputs = [completed_outputs[i] for i in depends_on if i in completed_outputs]
+        
+        # Execute in thread pool to avoid blocking (LLM calls are blocking)
+        loop = asyncio.get_event_loop()
+        output = await loop.run_in_executor(
+            None,
+            self._execute_agent,
+            role, task, query, previous_outputs, depth, max_depth
+        )
+        
+        logger.info(f"✅ [PARALLEL] Agent {agent_index} completed: {role_name.upper()}")
+        
+        return output
     
     def _execute_agent(self, role, task: str, original_query: str, previous_outputs: List[str], depth: int = 0, max_depth: int = 3) -> str:
         """Execute a single agent.
@@ -368,8 +590,9 @@ Combine these results to complete your original task.""")
         """
         graph_path = self.visualizer.create_execution_graph(
             plan_description=result["plan"]["description"],
-            agents=[{"role": r, "task": ""} for r in result["plan"]["agents"]],
-            trace=result["trace"]
+            agents=result.get("agents_spec", [{"role": r, "task": "", "depends_on": []} for r in result["plan"]["agents"]]),
+            trace=result["trace"],
+            execution_layers=result.get("execution_layers")
         )
         
         if auto_open:

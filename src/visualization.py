@@ -44,17 +44,26 @@ class ExecutionVisualizer:
             guide_style="bright_blue"
         )
         
-        for i, agent in enumerate(agents, 1):
+        for i, agent in enumerate(agents):
             role = agent.get("role", "unknown")
             task = agent.get("task", "no task")
             can_delegate = agent.get("can_delegate", False)
+            depends_on = agent.get("depends_on", [])
             
             # Add agent node
             delegate_marker = " 🔀" if can_delegate else ""
+            parallel_marker = " ⚡" if not depends_on else ""
             agent_node = tree.add(
-                f"[bold yellow]Step {i}: {role.upper()}{delegate_marker}[/bold yellow]"
+                f"[bold yellow]Agent {i}: {role.upper()}{delegate_marker}{parallel_marker}[/bold yellow]"
             )
             agent_node.add(f"[dim]Task: {task}[/dim]")
+            
+            if depends_on:
+                deps_str = ", ".join(str(d) for d in depends_on)
+                agent_node.add(f"[dim cyan]Depends on: agents {deps_str}[/dim cyan]")
+            else:
+                agent_node.add(f"[dim green]No dependencies (runs immediately)[/dim green]")
+                
             if can_delegate:
                 agent_node.add(f"[dim italic](Can delegate to sub-agents)[/dim italic]")
         
@@ -99,6 +108,7 @@ class ExecutionVisualizer:
                               plan_description: str,
                               agents: List[Dict[str, Any]],
                               trace: List[Dict[str, Any]],
+                              execution_layers: Optional[List[List[int]]] = None,
                               output_path: Optional[str] = None) -> str:
         """Create interactive HTML graph of execution flow.
         
@@ -106,11 +116,18 @@ class ExecutionVisualizer:
             plan_description: Plan description.
             agents: List of agent specifications.
             trace: Execution trace.
+            execution_layers: Execution layers for determining parallel agents.
             output_path: Output HTML file path. If None, auto-generates.
             
         Returns:
             Path to generated HTML file.
         """
+        # Build set of agents that ran in parallel (in layers with 2+ agents)
+        parallel_agents = set()
+        if execution_layers:
+            for layer in execution_layers:
+                if len(layer) > 1:  # Layer has multiple agents = parallel
+                    parallel_agents.update(layer)
         # Create network
         net = Network(
             height="600px",
@@ -153,7 +170,6 @@ class ExecutionVisualizer:
         )
         
         # Add agent nodes
-        prev_id = "start"
         colors = {
             "researcher": "#2196F3",
             "analyzer": "#9C27B0",
@@ -161,32 +177,46 @@ class ExecutionVisualizer:
             "writer": "#E91E63",
             "coder": "#00BCD4",
             "critic": "#F44336",
-            "synthesizer": "#4CAF50"
+            "synthesizer": "#4CAF50",
+            "coordinator": "#FF5722"
         }
         
-        for i, agent in enumerate(agents, 1):
+        # Track which agents have no dependencies (connect to START)
+        agents_with_no_deps = []
+        last_agents = []  # Track last layer to connect to END
+        
+        for i, agent in enumerate(agents):
             role = agent.get("role", "unknown")
             task = agent.get("task", "no task")
+            depends_on = agent.get("depends_on", [])
             
             node_id = f"agent_{i}"
-            color = colors.get(role, "#607D8B")
+            color = colors.get(role.lower(), "#607D8B")
             
             # Get execution status from trace
             status = "pending"
             output = ""
-            if i <= len(trace):
-                status = "completed"
-                output = trace[i-1].get("output", "")[:200]
+            for t in trace:
+                if t.get("step") == i:
+                    status = "completed"
+                    output = t.get("output", "")[:200]
+                    break
+            
+            # Determine if this agent ran in parallel (was in a layer with other agents)
+            is_parallel = i in parallel_agents
             
             # Create title with details
+            parallel_marker = " ⚡ PARALLEL" if is_parallel else " 🔗 SEQUENTIAL"
+            deps_info = f"<br>Depends on: {depends_on}" if depends_on else "<br>No dependencies (runs first)"
             title = f"""
-            <b>Step {i}: {role.upper()}</b><br>
+            <b>Agent {i}: {role.upper()}{parallel_marker}</b><br>
             Task: {task}<br>
-            Status: {status}<br>
+            Status: {status}{deps_info}<br>
             {f'Output: {output}...' if output else ''}
             """
             
-            # Add node
+            # Add node with size based on dependencies
+            node_size = 35 if not depends_on else 30
             net.add_node(
                 node_id,
                 label=f"{i}. {role}",
@@ -194,18 +224,40 @@ class ExecutionVisualizer:
                 color=color,
                 font={"size": 14, "color": "white"},
                 title=title.strip(),
-                size=30
+                size=node_size
             )
             
-            # Add edge from previous
-            net.add_edge(
-                prev_id,
-                node_id,
-                color={"color": "#888", "opacity": 0.8},
-                width=2
-            )
-            
-            prev_id = node_id
+            # Add edges based on dependencies
+            if not depends_on:
+                # No dependencies - connect from START
+                agents_with_no_deps.append(node_id)
+                net.add_edge(
+                    "start",
+                    node_id,
+                    color={"color": "#4CAF50", "opacity": 0.8},
+                    width=3,
+                    title="Runs immediately (no dependencies)"
+                )
+            else:
+                # Connect from dependencies
+                for dep_idx in depends_on:
+                    if 0 <= dep_idx < len(agents):
+                        net.add_edge(
+                            f"agent_{dep_idx}",
+                            node_id,
+                            color={"color": "#888", "opacity": 0.7},
+                            width=2,
+                            title=f"Waits for Agent {dep_idx}"
+                        )
+        
+        # Connect last agents (those with no dependents) to END
+        all_dependencies = set()
+        for agent in agents:
+            all_dependencies.update(agent.get("depends_on", []))
+        
+        for i in range(len(agents)):
+            if i not in all_dependencies:
+                last_agents.append(f"agent_{i}")
         
         # Add end node
         net.add_node(
@@ -216,12 +268,15 @@ class ExecutionVisualizer:
             font={"size": 16, "color": "white"},
             title="Execution complete"
         )
-        net.add_edge(
-            prev_id,
-            "end",
-            color={"color": "#888", "opacity": 0.8},
-            width=2
-        )
+        
+        # Connect last agents to END
+        for agent_id in last_agents:
+            net.add_edge(
+                agent_id,
+                "end",
+                color={"color": "#4CAF50", "opacity": 0.8},
+                width=2
+            )
         
         # Generate output path if not provided
         if not output_path:
