@@ -34,8 +34,19 @@ class ExecutionPlan:
             # Convert to list if single value
             if isinstance(depends_on, int):
                 depends_on = [depends_on]
-            # Filter valid dependencies
-            graph[i] = [d for d in depends_on if 0 <= d < len(self.agents) and d != i]
+            elif isinstance(depends_on, str):
+                # Handle string that might be a single number
+                try:
+                    depends_on = [int(depends_on)]
+                except ValueError:
+                    depends_on = []
+            # Convert all elements to integers and filter valid dependencies
+            try:
+                depends_on_ints = [int(d) for d in depends_on]
+                graph[i] = [d for d in depends_on_ints if 0 <= d < len(self.agents) and d != i]
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid depends_on for agent {i}: {depends_on}")
+                graph[i] = []
         return graph
     
     def get_execution_layers(self) -> List[List[int]]:
@@ -94,7 +105,8 @@ class MetaCoordinator:
         self.config = config
         self.llm = ChatOllama(
             model=config.ollama_model,
-            temperature=0.7,  # Higher for more creative agent planning
+            temperature=0.3,  # Lower temperature for more consistent JSON output
+            format="json"  # Request JSON format explicitly
         )
         self.role_library = RoleLibrary()
     
@@ -172,32 +184,78 @@ Your task:
 
 IMPORTANT: For simple questions that can be answered directly, use ONLY 1 agent!
 
+⚠️ GUARDRAILS - PREVENT EXCESSIVE COMPLEXITY:
+- Current depth: {depth}/{max_depth}
+- If depth > 2: Use FEWER agents (max 4-5) and avoid delegation
+- If depth = 0: Can use more agents and delegation for complex tasks
+- NEVER create more than 10 agents in a single plan
+- Each agent with can_delegate=True can create sub-agents (increases depth)
+- Delegation is for VERY complex tasks that need sub-workflows
+
 PARALLELIZATION:
 - Specify "depends_on" field with list of agent indices that must complete first
 - Agents with empty "depends_on": [] run immediately in parallel
 - Agents with "depends_on": [0, 2] wait for agents 0 and 2 to complete
 - MAXIMIZE PARALLELISM: Run independent tasks (e.g., multiple researchers) simultaneously
 
+⚠️ CRITICAL: LOGICAL DATA FLOW RULES! ⚠️
+
+1. PARALLEL EXECUTION:
+   - If tasks are independent, they should have "depends_on": []
+   - Example: Researching different topics CAN run in parallel
+   - Example: Multiple analyzers examining different aspects CAN run in parallel
+   - ONLY create dependencies when output from one agent is REQUIRED as input to another
+
+2. SYNTHESIZER/WRITER MUST BE LAST:
+   - Synthesizers and final writers MUST depend on ALL content-producing agents
+   - A synthesizer CANNOT run in parallel with researchers/analyzers it needs to synthesize!
+   - Synthesizer dependencies example: "depends_on": [0, 1, 2, 3, 4]
+   - The synthesizer should typically be the LAST agent (highest index)
+
+3. CRITIC COMES BEFORE SYNTHESIZER:
+   - If you include a critic, it should review content BEFORE final synthesis
+   - Critics depend on content producers, synthesizers depend on critics
+
+4. AVOID UNNECESSARY SEQUENTIAL CHAINS:
+   - A chain like 0→1→2→3→4→5→6→7 is WRONG if tasks are independent!
+   - Use parallel execution whenever tasks don't need each other's output
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CRITICAL: OUTPUT FORMAT
+CRITICAL: OUTPUT FORMAT - READ THIS CAREFULLY!
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-You MUST respond with ONLY a valid JSON object. No explanations, no text before or after.
-Do NOT write "Here's the plan" or any introductory text.
-Do NOT write explanations after the JSON.
-START your response with {{ and END with }}
+⚠️ YOU MUST OUTPUT **ONLY** VALID JSON - NOTHING ELSE! ⚠️
+
+DO NOT write:
+- "Here's the plan" or any introductory text
+- "Let me create a plan" or thinking statements  
+- Explanations before the JSON
+- Explanations after the JSON
+- Markdown code blocks like ```json
+- Any text that is not JSON
+
+Your ENTIRE response must be ONLY the JSON object.
+The FIRST character must be {{ and the LAST character must be }}
 
 Required JSON format:
-{{
+{{{{
   "description": "brief plan description",
   "agents": [
-    {{
+    {{{{
       "role": "ROLE_NAME",
       "task": "specific task",
-      "depends_on": []
-    }}
+      "depends_on": []  ← CRITICAL: Use [] ONLY if agent runs FIRST (no data needed from others)
+                        ← Use [0] if agent needs output from agent 0
+                        ← Use [0, 1, 2] if agent needs outputs from agents 0, 1, AND 2
+    }}}}
   ]
-}}
+}}}}
+
+⚠️ CRITICAL EXAMPLES OF depends_on:
+- "depends_on": [] → Agent runs IMMEDIATELY (first layer, no waiting)
+- "depends_on": [0] → Agent WAITS for agent 0 to finish
+- "depends_on": [0, 1] → Agent WAITS for BOTH agents 0 and 1 to finish
+- "depends_on": [0, 1, 2, 3] → Agent WAITS for agents 0, 1, 2, and 3 to finish
 
 Rules:
 - ⚠️ ONLY use roles from the list above - NO made-up roles!
@@ -233,6 +291,19 @@ Moderate with PARALLELISM (2-4 agents):
   {{"role": "writer", "task": "Format travel plan with tips", "depends_on": [1]}},
   {{"role": "synthesizer", "task": "Compile final travel guide", "depends_on": [2]}}
 ]}}
+
+GOOD PARALLELISM - Multiple Independent Analyses:
+"Analyze the impact of AI on society, economy, and politics" → {{"description": "AI impact analysis", "agents": [
+  {{"role": "researcher", "task": "Research AI's impact on society and culture", "depends_on": []}},
+  {{"role": "researcher", "task": "Research AI's impact on economy and jobs", "depends_on": []}},
+  {{"role": "researcher", "task": "Research AI's impact on politics and governance", "depends_on": []}},
+  {{"role": "analyzer", "task": "Analyze societal implications", "depends_on": [0]}},
+  {{"role": "analyzer", "task": "Analyze economic implications", "depends_on": [1]}},
+  {{"role": "analyzer", "task": "Analyze political implications", "depends_on": [2]}},
+  {{"role": "synthesizer", "task": "Combine all analyses into comprehensive report", "depends_on": [3, 4, 5]}}
+]}}
+NOTE: Layer 0: [0,1,2] researchers in PARALLEL → Layer 1: [3,4,5] analyzers in PARALLEL → Layer 2: [6] synthesizer WAITS for all!
+⚠️ CRITICAL: Synthesizer at index 6 is LAST and depends on [3,4,5] - this is CORRECT!
 
 Complex with MAXIMUM PARALLELISM (5-8 agents):
 "Create a business plan with market research and financial projections" → {{"description": "Comprehensive business planning", "agents": [
@@ -290,20 +361,58 @@ NOW OUTPUT YOUR PLAN AS JSON ONLY - START WITH {{ AND END WITH }}
             response = self.llm.invoke(messages, config=config)
             content = str(response.content) if response.content else ""
             
+            # Log raw response for debugging
+            logger.debug(f"📝 Raw LLM response (first 500 chars): {content[:500]}...")
+            
             # Parse JSON
             try:
                 plan_data = json.loads(content)
                 logger.info("✓ Successfully parsed JSON response")
+                logger.debug(f"📋 Parsed plan: {json.dumps(plan_data, indent=2)}")
             except json.JSONDecodeError:
                 # Extract JSON from text
                 logger.warning("⚠️ Response is not pure JSON, attempting to extract...")
-                start = content.find('{')
-                end = content.rfind('}') + 1
+                
+                # Try to remove markdown code blocks first
+                cleaned_content = content
+                if "```json" in content or "```" in content:
+                    logger.info("Found markdown code blocks, removing...")
+                    cleaned_content = content.replace("```json", "").replace("```", "")
+                
+                start = cleaned_content.find('{')
+                end = cleaned_content.rfind('}') + 1
                 if start >= 0 and end > start:
-                    json_str = content[start:end]
+                    json_str = cleaned_content[start:end]
                     logger.info(f"📄 Extracted JSON (first 200 chars): {json_str[:200]}...")
-                    plan_data = json.loads(json_str)
-                    logger.info("✓ Successfully extracted and parsed JSON")
+                    
+                    # Try to parse
+                    try:
+                        plan_data = json.loads(json_str)
+                        logger.info("✓ Successfully extracted and parsed JSON")
+                    except json.JSONDecodeError as e:
+                        # Try common fixes
+                        logger.warning(f"⚠️ JSON parse error: {e}, attempting repairs...")
+                        
+                        # Fix 1: Replace single quotes with double quotes
+                        json_str = json_str.replace("'", '"')
+                        
+                        # Fix 2: Add missing commas between objects (common LLM error)
+                        import re
+                        # Pattern: }\n    { (object end, newline, object start)
+                        json_str = re.sub(r'\}\s*\n\s*\{', '},\n    {', json_str)
+                        # Pattern: ]\n  } (array end, newline, object end)
+                        json_str = re.sub(r'\]\s*\n\s*\}', ']\n  }', json_str)
+                        
+                        # Fix 3: Remove trailing commas before ] or }
+                        json_str = re.sub(r',(\s*[\]}])', r'\1', json_str)
+                        
+                        try:
+                            plan_data = json.loads(json_str)
+                            logger.info("✓ Successfully repaired and parsed JSON")
+                        except json.JSONDecodeError as e2:
+                            logger.error(f"✗ JSON repair failed: {e2}")
+                            logger.error(f"✗ Attempted JSON (first 1000 chars): {json_str[:1000]}...")
+                            raise ValueError(f"Invalid JSON after repair attempts: {e2}")
                 else:
                     logger.error(f"✗ No JSON found in response (first 500 chars): {content[:500]}...")
                     raise ValueError("No JSON in response")
@@ -311,6 +420,12 @@ NOW OUTPUT YOUR PLAN AS JSON ONLY - START WITH {{ AND END WITH }}
             # Validate plan
             if not plan_data.get("agents"):
                 raise ValueError("No agents in plan")
+            
+            # GUARDRAIL: Limit number of agents
+            max_agents = 10 if depth == 0 else 5  # Fewer agents for deeper levels
+            if len(plan_data.get("agents", [])) > max_agents:
+                logger.warning(f"⚠️ Plan has {len(plan_data['agents'])} agents, limiting to {max_agents}")
+                plan_data["agents"] = plan_data["agents"][:max_agents]
             
             # Create execution plan with delegation info AND VALIDATION
             agents = []
@@ -333,22 +448,56 @@ NOW OUTPUT YOUR PLAN AS JSON ONLY - START WITH {{ AND END WITH }}
                         continue
                     
                     can_delegate = role.can_delegate
+                    depends_on = agent_spec.get("depends_on", [])
+                    
+                    # Normalize depends_on to list of integers
+                    if isinstance(depends_on, (int, str)):
+                        depends_on = [depends_on]
+                    # Convert all to integers
+                    try:
+                        depends_on = [int(d) if isinstance(d, str) else d for d in depends_on]
+                    except (ValueError, TypeError):
+                        logger.warning(f"⚠️ Invalid depends_on format: {depends_on}, using empty list")
+                        depends_on = []
                     
                     agents.append({
                         "role": role_name_lower,  # Use normalized name
                         "task": task,
-                        "can_delegate": can_delegate
+                        "can_delegate": can_delegate,
+                        "depends_on": depends_on  # Now guaranteed to be list of ints
                     })
             
             # If invalid roles were found, log error
             if invalid_roles:
                 logger.error(f"✗ Invalid roles rejected: {invalid_roles}")
                 logger.error(f"✗ Valid roles are: {self.role_library.list_roles()}")
+                logger.error(f"📄 LLM Response that caused rejection: {content[:1000]}")
             
             # If no valid agents, use fallback
             if not agents:
                 logger.error("✗ No valid agents in plan, using fallback")
+                logger.error(f"📋 Plan data received: {plan_data}")
+                logger.error(f"📄 Full LLM response: {content}")
                 return self._create_fallback_plan(query)
+            
+            logger.info(f"📝 Created {len(agents)} agents from LLM plan")
+            logger.info("📊 Dependencies BEFORE auto-fix:")
+            for i, agent in enumerate(agents):
+                deps = agent.get('depends_on', [])
+                logger.info(f"   Agent {i} ({agent['role']}): {deps}")
+            
+            # CRITICAL: Auto-fix synthesizer dependencies
+            agents = self._fix_synthesizer_dependencies(agents)
+            
+            logger.info("📊 Dependencies AFTER auto-fix:")
+            for i, agent in enumerate(agents):
+                deps = agent.get('depends_on', [])
+                logger.info(f"   Agent {i} ({agent['role']}): {deps}")
+            
+            # Validate logical flow
+            if not self._validate_plan_logic(agents):
+                logger.warning("⚠️ Plan has logical issues, attempting to fix...")
+                agents = self._fix_plan_logic(agents)
             
             plan = ExecutionPlan(
                 description=plan_data.get("description", "Dynamic execution plan"),
@@ -359,6 +508,16 @@ NOW OUTPUT YOUR PLAN AS JSON ONLY - START WITH {{ AND END WITH }}
             logger.info(f"✓ Created plan: {plan.description}")
             logger.info(f"✓ Agents: {[a['role'] for a in plan.agents]}")
             
+            # DEBUG: Log dependencies for each agent
+            logger.info("📊 Agent Dependencies:")
+            for i, agent in enumerate(plan.agents):
+                deps = agent.get('depends_on', [])
+                if deps:
+                    dep_roles = [plan.agents[d]['role'] for d in deps if d < len(plan.agents)]
+                    logger.info(f"   Agent {i} ({agent['role']}): depends on {deps} → {dep_roles}")
+                else:
+                    logger.info(f"   Agent {i} ({agent['role']}): NO DEPENDENCIES (runs immediately)")
+            
             return plan
             
         except Exception as e:
@@ -367,6 +526,115 @@ NOW OUTPUT YOUR PLAN AS JSON ONLY - START WITH {{ AND END WITH }}
             
             # Fallback plan
             return self._create_fallback_plan(query)
+    
+    def _fix_synthesizer_dependencies(self, agents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Ensure synthesizers depend on all content-producing agents.
+        
+        Args:
+            agents: List of agent specifications.
+            
+        Returns:
+            Fixed agent list.
+        """
+        for i, agent in enumerate(agents):
+            if agent['role'] in ['synthesizer', 'writer'] and i > 0:
+                # Synthesizer/writer should depend on all previous content producers
+                depends_on = agent.get('depends_on', [])
+                
+                # Convert to list if single value
+                if isinstance(depends_on, (int, str)):
+                    depends_on = [depends_on]
+                
+                # Convert string deps to ints
+                try:
+                    depends_on = [int(d) if isinstance(d, str) else d for d in depends_on]
+                except (ValueError, TypeError):
+                    depends_on = []
+                
+                # If synthesizer has no dependencies, make it depend on all previous agents
+                if not depends_on:
+                    # Depend on all agents except other synthesizers/writers
+                    content_producers = [
+                        j for j in range(i) 
+                        if agents[j]['role'] not in ['synthesizer', 'writer', 'critic']
+                    ]
+                    if content_producers:
+                        agent['depends_on'] = content_producers
+                        logger.info(f"🔧 Auto-fixed {agent['role']} {i}: now depends on {content_producers}")
+                else:
+                    # Update with int-converted deps
+                    agent['depends_on'] = depends_on
+        
+        return agents
+    
+    def _validate_plan_logic(self, agents: List[Dict[str, Any]]) -> bool:
+        """Validate that the plan has logical dependencies.
+        
+        Args:
+            agents: List of agent specifications.
+            
+        Returns:
+            True if plan is logically valid.
+        """
+        # Check 1: Synthesizers should not be in first layer
+        for i, agent in enumerate(agents):
+            if agent['role'] == 'synthesizer' and i < len(agents) - 1:
+                depends_on = agent.get('depends_on', [])
+                if not depends_on:
+                    logger.warning(f"⚠️ Synthesizer at position {i} has no dependencies")
+                    return False
+        
+        # Check 2: No circular dependencies (basic check)
+        for i, agent in enumerate(agents):
+            depends_on = agent.get('depends_on', [])
+            # Convert to list if single value
+            if isinstance(depends_on, (int, str)):
+                depends_on = [depends_on]
+            
+            for dep in depends_on:
+                # Convert to int if string
+                try:
+                    dep_int = int(dep) if isinstance(dep, str) else dep
+                except (ValueError, TypeError):
+                    logger.warning(f"⚠️ Invalid dependency value: {dep}")
+                    continue
+                    
+                if dep_int == i:
+                    logger.warning(f"⚠️ Agent {i} depends on itself")
+                    return False
+                # Check for forward dependencies
+                if dep_int >= i:
+                    logger.warning(f"⚠️ Agent {i} depends on future agent {dep_int}")
+                    return False
+        
+        return True
+    
+    def _fix_plan_logic(self, agents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Fix logical issues in the plan.
+        
+        Args:
+            agents: List of agent specifications.
+            
+        Returns:
+            Fixed agent list.
+        """
+        # Move synthesizers to the end if they're in the middle with no deps
+        fixed_agents = []
+        synthesizers = []
+        
+        for agent in agents:
+            if agent['role'] == 'synthesizer' and not agent.get('depends_on'):
+                synthesizers.append(agent)
+            else:
+                fixed_agents.append(agent)
+        
+        # Add synthesizers at the end
+        for synth in synthesizers:
+            # Make them depend on all previous agents
+            synth['depends_on'] = list(range(len(fixed_agents)))
+            fixed_agents.append(synth)
+        
+        return fixed_agents
     
     def _create_fallback_plan(self, query: str) -> ExecutionPlan:
         """Create a simple fallback plan.

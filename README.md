@@ -1,128 +1,125 @@
-# LangChain Meta-Agent System
+# Magentic
 
-An advanced **meta-orchestration system** that dynamically creates hierarchical multi-agent workflows based on query complexity. Built with LangChain, Ollama (local LLM), and Arize Phoenix observability.
+**Magnetic Agent Networks** - An advanced meta-orchestration system that dynamically creates hierarchical multi-agent workflows with intelligent parallel execution. Built with LangChain, Ollama (local LLM), and Arize Phoenix observability.
 
 ## 🌟 Key Features
 
 ### Intelligent Orchestration
-- **🎯 Adaptive Complexity Analysis**: Automatically analyzes query complexity (score-based system)
-- **📊 Dynamic Scaling**: Scales from 1 agent (simple) to 12+ agents (complex projects)
+- **🎯 Adaptive Complexity Analysis**: Automatically analyzes query complexity and scales agent topology
+- **📊 Dynamic Agent Scaling**: From 1 agent (simple queries) to 12+ agents (complex projects)
 - **🔀 Hierarchical Delegation**: Up to 5 levels of agent nesting with recursive task delegation
 - **🧠 Meta-Coordination**: AI coordinator decides optimal agent topology per query
-- **⚡ Parallel Execution**: DAG-based parallel agent execution for maximum efficiency
+- **⚡ DAG-Based Parallel Execution**: Maximum efficiency through intelligent dependency resolution
+- **🛡️ Logical Flow Validation**: Auto-corrects illogical dependencies (e.g., synthesizers running before data sources)
 
 ### Agent Capabilities
 - **8 Specialized Roles**: Researcher, Analyzer, Planner, Writer, Coder, Critic, Synthesizer, Coordinator
-- **🔧 Tool Integration**: DuckDuckGo web search for real-time information
-- **🎨 Role-Based Delegation**: Planner and Coordinator roles can spawn sub-agents
+- **🔧 Tool Integration**: DuckDuckGo web search with smart query extraction
+- **🎨 Role-Based Delegation**: Planner and Coordinator roles spawn sub-agents for complex tasks
 - **💾 Conversation Memory**: Maintains context across multi-turn conversations
-- **🔀 Dependency Management**: Agents specify dependencies for optimal execution order
+- **🔀 Smart Dependency Management**: Agents specify dependencies; system validates logical flow
+- **🔧 Auto-Fix Logic**: Automatically corrects common dependency errors
 
 ### Visualization & Monitoring
-- **🌳 Terminal Trees**: Rich console output showing execution hierarchy
-- **🌐 Interactive Graphs**: PyVis-based HTML graphs with hover details
+- **🌳 Rich Terminal Trees**: Beautiful console output showing execution hierarchy and layers
+- **🌐 Interactive HTML Graphs**: PyVis-based graphs with dependency visualization
 - **📈 Phoenix Tracing**: Real-time observability with unique trace names per agent
-- **📊 Complexity Insights**: Detailed logging of complexity analysis and decisions
+- **📊 Layer Execution**: See which agents run in parallel vs sequential
 
 ### Technical Stack
-- **🤖 Local LLM**: Ollama (llama3.2:1b) - 100% local, no API calls
-- **🔍 Web Search**: DuckDuckGo Search integration
+- **🤖 Local LLM**: Ollama (llama3.2:1b or any model) - 100% local, no API calls
+- **🔍 Web Search**: DuckDuckGo Search with intelligent query handling
 - **📊 Observability**: Arize Phoenix with OpenTelemetry instrumentation
 - **🎨 Visualization**: Rich (terminal) + PyVis (interactive graphs)
+- **⚡ Async Execution**: Concurrent agent execution with semaphore-based resource control
 
 ## 🏗️ Architecture
 
-### DAG-Based Parallel Execution
+### Logical Data Flow
 
-The system uses a **Directed Acyclic Graph (DAG)** to represent agent dependencies and enable parallel execution:
-
-1. **Coordinator Analyzes Dependencies**: AI determines which agents can run in parallel
-2. **Topological Sort**: Groups agents into execution layers
-3. **Parallel Execution**: Agents in same layer run concurrently using asyncio
-4. **Dependency Resolution**: Agents wait only for their specific dependencies
-5. **Concurrency Control**: Limits simultaneous executions (default: 3 agents) to prevent system overload
-
-**Example Parallel Execution:**
-```
-Query: "Compare Python and Rust for web development"
-
-Layer 1 (parallel):
-├─ Agent 0: Researcher → Python frameworks  } Run
-└─ Agent 1: Researcher → Rust frameworks    } simultaneously
-
-Layer 2 (waits for Layer 1):
-└─ Agent 2: Analyzer → Compare results
-
-Layer 3 (waits for Layer 2):
-└─ Agent 3: Synthesizer → Final report
-```
-
-### Complexity-Based Execution
-
-The system analyzes each query and assigns a complexity score based on:
-- Multi-step indicators (plan, design, create, build, comprehensive...)
-- Analysis keywords (compare, evaluate, research, analyze...)
-- Query length and structure
-- Multiple question marks or "and" conjunctions
-
-**Complexity Mapping:**
-```
-Score < 1:    Very Simple  → depth=1, 1-2 agents
-Score 1-2:    Simple       → depth=2, 2-4 agents  
-Score 3-4:    Moderate     → depth=3, 4-6 agents
-Score 5-7:    Complex      → depth=4, 6-8 agents
-Score 8+:     Very Complex → depth=5, 8-12+ agents
-```
-
-### Hierarchical Agent System
+Magentic enforces **logical data dependencies** to prevent nonsensical parallel execution:
 
 ```
-Level 0: User Query
-├─ Meta-Coordinator (analyzes & plans)
-├─ Agent 1: Coordinator [can delegate]
-│  └─ Level 1: Sub-query
-│     ├─ Sub-Agent 1.1: Researcher
-│     ├─ Sub-Agent 1.2: Analyzer
-│     └─ Sub-Agent 1.3: Synthesizer
-├─ Agent 2: Writer
-└─ Agent 3: Synthesizer
+User Query
+    ↓
+Meta-Coordinator (analyzes & creates plan)
+    ↓
+┌─────────────────────────────────────────┐
+│  Layer 0: Independent Content Producers │
+│  ⚡ Run in PARALLEL                      │
+│  - Researcher A (topic 1)                │
+│  - Researcher B (topic 2)                │
+│  - Researcher C (topic 3)                │
+└─────────────────────────────────────────┘
+    ↓ (all outputs available)
+┌─────────────────────────────────────────┐
+│  Layer 1: Analyzers/Processors          │
+│  ⚡ Run in PARALLEL                      │
+│  - Analyze topic A                       │
+│  - Analyze topic B                       │
+│  - Analyze topic C                       │
+└─────────────────────────────────────────┘
+    ↓ (all analyses complete)
+┌─────────────────────────────────────────┐
+│  Layer 2: Synthesizer (WAITS)           │
+│  - Combines ALL previous outputs         │
+│  - Creates final coherent answer         │
+└─────────────────────────────────────────┘
+    ↓
+Final Output
 ```
 
-### Execution Flow
+### Key Architectural Features
 
-1. **Query Analysis** → Complexity scoring (automated)
-2. **Meta-Planning** → Coordinator designs agent topology with dependencies
-3. **DAG Construction** → Build dependency graph and topological sort
-4. **Layer Execution** → Run independent agents in parallel
-5. **Delegation** (if needed) → Recursive sub-agent creation
-6. **Synthesis** → Final answer compilation
-7. **Visualization** → Graphs and traces
+**1. Dependency Validation**
+- Synthesizers MUST wait for all content-producing agents
+- Auto-correction of missing dependencies
+- Prevention of circular and forward dependencies
 
-## 📦 Prerequisites
+**2. Parallel Execution Layers**
+- Agents grouped into execution layers via topological sort
+- Independent agents execute concurrently within layers
+- Dependent agents wait for their required inputs
 
-- **Python 3.11+**
-- **Ollama** - [Download from ollama.com](https://ollama.com)
+**3. Guardrails**
+- Max agents: 10 at depth 0, 5 at deeper levels
+- Max depth: 5 levels (prevents infinite recursion)
+- Semaphore-based concurrency control (default: 3 concurrent agents)
 
-## 🚀 Quick Start
+**4. Complexity-Based Scaling**
+```
+Score < 1:    Very Simple  → 1-2 agents, depth=1
+Score 1-2:    Simple       → 2-4 agents, depth=2  
+Score 3-4:    Moderate     → 4-6 agents, depth=3
+Score 5-7:    Complex      → 6-8 agents, depth=4
+Score 8+:     Very Complex → 8-12+ agents, depth=5
+```
+
+## � Quick Start
 
 ### 1. Install Ollama & Model
 ```bash
-# Install Ollama, then pull the model
+# Install Ollama from https://ollama.com, then:
 ollama pull llama3.2:1b
+# Or use any other model:
+# ollama pull llama3.1
+# ollama pull mistral
 ```
 
-### 2. Install Dependencies
+### 2. Clone & Install
 ```bash
+git clone https://github.com/yourusername/magentic.git
+cd magentic
 pip install -r requirements.txt
 ```
 
-### 3. Run the Application
+### 3. Run Magentic
 ```bash
 python -m src.main
 ```
 
-### 4. Access Phoenix Dashboard
-Open http://localhost:6006 in your browser to see real-time traces.
+### 4. Access Phoenix Dashboard (Optional)
+Open http://localhost:6006 to see real-time LLM traces and agent execution flows.
 
 ## 💡 Usage Examples
 
@@ -258,24 +255,24 @@ MAX_PARALLEL_AGENTS=3          # Limit concurrent agent executions (prevents ove
 ## 🛠️ Project Structure
 
 ```
-test_langchain/
+magentic/
 ├── src/
 │   ├── main.py                    # Interactive CLI
 │   ├── meta_agent_system.py       # Core orchestration engine
-│   ├── meta_coordinator.py        # AI-based planning
+│   ├── meta_coordinator.py        # AI-based planning & validation
 │   ├── role_library.py            # Agent role definitions
-│   ├── tools.py                   # DuckDuckGo search tools
+│   ├── tools.py                   # DuckDuckGo search integration
 │   ├── visualization.py           # Rich + PyVis rendering
-│   ├── observability.py           # Phoenix tracing
-│   └── config.py                  # Configuration
+│   ├── observability.py           # Phoenix tracing setup
+│   └── config.py                  # Configuration management
 ├── docs/                          # Documentation
-│   ├── ARCHITECTURE_DIAGRAM.txt   # System architecture
+│   ├── LOGICAL_FLOW.md            # Data flow & validation logic
 │   ├── HIERARCHICAL_AGENTS.md     # Multi-level delegation
-│   ├── IMPLEMENTATION_SUMMARY.md  # Technical details
-│   ├── PARALLEL_EXECUTION.md      # Parallelization system
-│   └── VISUALIZATION.md           # Graph & observability
+│   ├── PARALLEL_EXECUTION.md      # Parallelization details
+│   └── VISUALIZATION.md           # Graphs & observability
 ├── execution_graphs/              # Generated HTML graphs
-├── requirements.txt               # Dependencies
+├── requirements.txt               # Python dependencies
+├── LICENSE                        # AGPL-3.0 license
 └── README.md                      # This file
 ```
 
@@ -366,4 +363,7 @@ Built with:
 
 ---
 
-**Built with ❤️ for adaptive AI agent systems**
+**Built with ❤️ for adaptive AI systems**
+
+**Magentic** - Magnetic Agent Networks for Intelligent Task Execution ⚡🧲
+

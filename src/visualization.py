@@ -76,7 +76,9 @@ class ExecutionVisualizer:
                                    total_steps: int,
                                    role: str,
                                    task: str,
-                                   status: str = "running") -> None:
+                                   status: str = "running",
+                                   layer: int = 1,
+                                   total_layers: int = 1) -> None:
         """Display current execution progress.
         
         Args:
@@ -85,6 +87,8 @@ class ExecutionVisualizer:
             role: Agent role.
             task: Current task.
             status: Status (running/complete/error).
+            layer: Current execution layer.
+            total_layers: Total number of layers.
         """
         status_emoji = {
             "running": "🔄",
@@ -98,8 +102,9 @@ class ExecutionVisualizer:
         table.add_column("Key", style="bold")
         table.add_column("Value")
         
-        table.add_row("Progress", f"{current_step}/{total_steps}")
-        table.add_row("Agent", f"{emoji} {role.upper()}")
+        table.add_row("Layer", f"{layer}/{total_layers}")
+        table.add_row("Agent", f"{current_step}/{total_steps}")
+        table.add_row("Role", f"{emoji} {role.upper()}")
         table.add_row("Task", task[:80] + "..." if len(task) > 80 else task)
         
         self.console.print(table)

@@ -58,10 +58,22 @@ class MetaAgentSystem:
         Returns:
             Result dictionary with final answer and execution trace.
         """
+        # Enforce absolute max depth as guardrail
+        if depth >= self.absolute_max_depth:
+            logger.warning(f"🛑 Max depth {self.absolute_max_depth} reached, stopping recursion")
+            return {
+                "final_answer": f"Maximum execution depth ({self.absolute_max_depth}) reached. Unable to process further sub-tasks.",
+                "trace": [],
+                "plan": {"description": "Depth limit exceeded", "agents": [], "execution_layers": 0}
+            }
+        
         # Determine max_depth dynamically based on query complexity (first call only)
         if max_depth is None:
             max_depth = self._analyze_query_complexity(query)
             logger.info(f"🎯 Query complexity analysis: max_depth={max_depth}")
+            
+        # Enforce that we don't exceed absolute max
+        max_depth = min(max_depth, self.absolute_max_depth)
         
         indent = "  " * depth
         logger.info(f"{indent}🚀 Processing query (depth {depth}/{max_depth}): {query[:100]}...")
@@ -105,13 +117,15 @@ class MetaAgentSystem:
                 # Single agent - no parallelization needed
                 i = agent_indices[0]
                 output = self._execute_single_agent(
-                    i, plan.agents[i], plan.agents, outputs, query, depth, max_depth, trace
+                    i, plan.agents[i], plan.agents, outputs, query, depth, max_depth, trace,
+                    layer_idx=layer_idx, total_layers=len(execution_layers)
                 )
                 outputs[i] = output
             else:
                 # Multiple agents - run in parallel using asyncio
                 layer_outputs = asyncio.run(self._execute_layer_parallel(
-                    agent_indices, plan.agents, outputs, query, depth, max_depth, trace
+                    agent_indices, plan.agents, outputs, query, depth, max_depth, trace,
+                    layer_idx=layer_idx, total_layers=len(execution_layers)
                 ))
                 outputs.update(layer_outputs)
         
@@ -151,7 +165,9 @@ class MetaAgentSystem:
         query: str,
         depth: int,
         max_depth: int,
-        trace: List[Dict[str, Any]]
+        trace: List[Dict[str, Any]],
+        layer_idx: int = 0,
+        total_layers: int = 1
     ) -> str:
         """Execute a single agent and update trace.
         
@@ -164,6 +180,8 @@ class MetaAgentSystem:
             depth: Current execution depth.
             max_depth: Maximum execution depth.
             trace: Execution trace list to update.
+            layer_idx: Current execution layer index.
+            total_layers: Total number of execution layers.
             
         Returns:
             Agent's output.
@@ -178,13 +196,15 @@ class MetaAgentSystem:
         logger.info(f"🤖 Agent {agent_index}: {role_name.upper()}")
         logger.info(f"   Task: {task}")
         
-        # Display progress
+        # Display progress with layer info
         self.visualizer.display_execution_progress(
             current_step=agent_index + 1,
             total_steps=len(all_agents),
             role=role_name,
             task=task,
-            status="running"
+            status="running",
+            layer=layer_idx + 1,
+            total_layers=total_layers
         )
         
         # Get role definition
@@ -227,7 +247,9 @@ class MetaAgentSystem:
         completed_outputs: Dict[int, str],
         query: str,
         depth: int,
-        max_depth: int
+        max_depth: int,
+        layer_idx: int = 0,
+        total_layers: int = 1
     ) -> str:
         """Execute agent with semaphore to limit concurrency.
         
@@ -239,6 +261,8 @@ class MetaAgentSystem:
             query: Original query.
             depth: Current execution depth.
             max_depth: Maximum execution depth.
+            layer_idx: Current execution layer index.
+            total_layers: Total number of execution layers.
             
         Returns:
             Agent output.
@@ -246,7 +270,8 @@ class MetaAgentSystem:
         async with self._semaphore:
             logger.info(f"🔓 Agent {agent_index} acquired semaphore slot")
             result = await self._execute_agent_async(
-                agent_index, agent_spec, all_agents, completed_outputs, query, depth, max_depth
+                agent_index, agent_spec, all_agents, completed_outputs, query, depth, max_depth,
+                layer_idx=layer_idx, total_layers=total_layers
             )
             logger.info(f"🔒 Agent {agent_index} released semaphore slot")
             return result
@@ -259,7 +284,9 @@ class MetaAgentSystem:
         query: str,
         depth: int,
         max_depth: int,
-        trace: List[Dict[str, Any]]
+        trace: List[Dict[str, Any]],
+        layer_idx: int = 0,
+        total_layers: int = 1
     ) -> Dict[int, str]:
         """Execute multiple agents in parallel using asyncio.
         
@@ -271,18 +298,23 @@ class MetaAgentSystem:
             depth: Current execution depth.
             max_depth: Maximum execution depth.
             trace: Execution trace list to update.
+            layer_idx: Current execution layer index.
+            total_layers: Total number of execution layers.
             
         Returns:
             Dictionary mapping agent index to output.
         """
         logger.info(f"⚡ Executing {len(agent_indices)} agents in parallel (max {self.max_parallel_agents} concurrent)...")
+        agent_roles = [all_agents[i]['role'] for i in agent_indices]
+        logger.info(f"⚡ Layer {layer_idx + 1} agents: {agent_roles}")
         
         # Create async tasks with semaphore limiting
         tasks = []
         for i in agent_indices:
             task = asyncio.create_task(
                 self._execute_agent_with_limit(
-                    i, all_agents[i], all_agents, completed_outputs, query, depth, max_depth
+                    i, all_agents[i], all_agents, completed_outputs, query, depth, max_depth,
+                    layer_idx=layer_idx, total_layers=total_layers
                 )
             )
             tasks.append((i, task))
@@ -314,7 +346,9 @@ class MetaAgentSystem:
         completed_outputs: Dict[int, str],
         query: str,
         depth: int,
-        max_depth: int
+        max_depth: int,
+        layer_idx: int = 0,
+        total_layers: int = 1
     ) -> str:
         """Async wrapper for executing an agent.
         
@@ -326,6 +360,8 @@ class MetaAgentSystem:
             query: Original query.
             depth: Current execution depth.
             max_depth: Maximum execution depth.
+            layer_idx: Current execution layer index.
+            total_layers: Total number of execution layers.
             
         Returns:
             Agent's output.
@@ -337,7 +373,7 @@ class MetaAgentSystem:
             logger.error(f"Invalid agent spec: {agent_spec}")
             return ""
         
-        logger.info(f"⚡ [PARALLEL] Agent {agent_index}: {role_name.upper()}")
+        logger.info(f"⚡ [PARALLEL Layer {layer_idx + 1}] Agent {agent_index}: {role_name.upper()}")
         
         # Get role definition
         role = self.role_library.get_role(role_name)
@@ -435,6 +471,61 @@ Otherwise, complete the task directly and respond with your normal output (not J
         
         # Execute with or without tools
         if role.needs_tools:
+            # Special handling for researcher role - more reliable than tool calling
+            if role.name == "researcher":
+                logger.info(f"🔍 {role.name} will perform web search")
+                
+                # First, ask the LLM what to search for
+                search_prompt = SystemMessage(content=f"""You are a research specialist planning a web search.
+Based on the task, provide 1-3 search queries (one per line) that would give the best results.
+Just output the search queries, nothing else. No explanations, no numbering.""")
+                
+                search_response = self.llm.invoke([search_prompt, task_msg], config=config)
+                search_queries = str(search_response.content).strip().split('\n')
+                search_queries = [q.strip() for q in search_queries if q.strip()][:3]  # Max 3 queries
+                
+                logger.info(f"   └─ Search queries: {search_queries}")
+                
+                # Execute searches
+                tool_results = []
+                for query in search_queries:
+                    # Clean query (remove numbering, bullets, etc.)
+                    query = query.lstrip('0123456789.-) ').strip()
+                    if not query:
+                        continue
+                    
+                    for tool in self.tools:
+                        if tool.name in ['duckduckgo_search', 'ddg-search']:
+                            try:
+                                logger.info(f"   └─ Searching: {query}")
+                                result = tool.invoke({"query": query})
+                                tool_results.append(result)
+                                logger.info(f"="*60)
+                                logger.info(f"🔍 SEARCH RESULT for '{query}':")
+                                logger.info(f"="*60)
+                                logger.info(result[:500] + "..." if len(result) > 500 else result)
+                                logger.info(f"="*60)
+                            except Exception as e:
+                                logger.error(f"   └─ Search error for '{query}': {e}")
+                                tool_results.append(f"Search failed: {e}")
+                            break
+                
+                # Get final response with search results
+                if tool_results:
+                    tool_context = "\n\n".join([f"Search result {i+1}:\n{r}" for i, r in enumerate(tool_results)])
+                    logger.info(f"📥 {role.name} processing {len(tool_results)} search result(s)")
+                    final_response = self.llm.invoke([
+                        system_msg,
+                        task_msg,
+                        AIMessage(content=f"Based on these search results:\n\n{tool_context}\n\nProvide a comprehensive research summary.")
+                    ], config=config)
+                    return str(final_response.content)
+                else:
+                    logger.warning(f"⚠️ No search results obtained, providing answer without search")
+                    response = self.llm.invoke([system_msg, task_msg], config=config)
+                    return str(response.content)
+            
+            # Fallback to standard tool calling for other tool-enabled roles
             llm_with_tools = self.llm.bind_tools(self.tools)
             logger.info(f"🔧 {role.name} has access to web search")
             
@@ -458,6 +549,19 @@ Otherwise, complete the task directly and respond with your normal output (not J
                     logger.info(f"   └─ Tool: {tool_name}")
                     logger.info(f"   └─ Args: {tool_args}")
                     logger.debug(f"   └─ Full tool_call: {tool_call}")
+                    
+                    # Validate and clean tool args
+                    if isinstance(tool_args, dict):
+                        # Check if we got a schema instead of actual args (common LLM mistake)
+                        if 'properties' in tool_args or 'type' in tool_args:
+                            logger.warning(f"   └─ LLM returned schema instead of args, attempting extraction...")
+                            # Try to extract actual query from various possible locations
+                            if 'query' in tool_args and isinstance(tool_args['query'], str):
+                                tool_args = {'query': tool_args['query']}
+                            else:
+                                logger.error(f"   └─ Could not extract valid query from schema")
+                                tool_results.append(f"Error: LLM provided schema instead of actual search query")
+                                continue
                     
                     # Find and execute tool
                     tool_found = False
