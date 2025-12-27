@@ -85,15 +85,26 @@ DEBUG_STATE=true         # Enable debug visualization
 | **Critic** | Reviews and improves content |
 | **Synthesizer** | Combines multiple inputs into final output |
 
-## How It Works
+## Architecture Highlights
+
+| Component | Technology | Description |
+|-----------|------------|-------------|
+| **Orchestration** | LangGraph | DAG-based execution with state management, checkpointing, and crash recovery |
+| **MCP Gateway** | Docker + FastMCP | Model Context Protocol server for extensible tool integration |
+| **RAG Engine** | Qdrant/ChromaDB | Vector search over your documents with semantic retrieval |
+| **Persistence** | SQLAlchemy + SQLite | Full conversation history, user profiles, and session management |
+| **State Management** | LangGraph State | Typed state with reducers, enabling complex multi-agent workflows |
+| **Real-time** | WebSocket | Live streaming of agent execution with token usage tracking |
+
+### Execution Flow
 
 ```
 Query → Meta-Coordinator → Execution Plan → LangGraph DAG
               ↓
 Layer 0: [researcher_0, researcher_1] (parallel)
-              ↓
+              ↓ barrier
 Layer 1: [analyzer_2] (waits for layer 0)
-              ↓
+              ↓ barrier  
 Layer 2: [synthesizer_3] (final answer)
               ↓
 WebSocket Stream → React UI
@@ -116,4 +127,4 @@ WebSocket Stream → React UI
 
 ## License
 
-MIT License - see [LICENSE](LICENSE)
+AGPLv3 License - see [LICENSE](LICENSE)
