@@ -63,6 +63,20 @@ class Config:
             os.getenv("AGENT_HISTORY_LIMIT", "500")
         )  # Preview limit for conversation history
 
+        # Delegation depth limits (for hierarchical agent execution)
+        self.max_delegation_depth: int = int(
+            os.getenv("MAX_DELEGATION_DEPTH", "3")
+        )  # Default max depth for agent delegation
+        self.absolute_max_depth: int = int(
+            os.getenv("ABSOLUTE_MAX_DEPTH", "5")
+        )  # Hard safety limit to prevent infinite recursion
+        self.max_subtasks_per_delegation: int = int(
+            os.getenv("MAX_SUBTASKS_PER_DELEGATION", "5")
+        )  # Max subtasks an agent can delegate to at once
+        self.max_total_delegations: int = int(
+            os.getenv("MAX_TOTAL_DELEGATIONS", "20")
+        )  # Max total delegations per query (across all depths)
+
         # RAG settings
         self.enable_rag: bool = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
         self.rag_vector_store: str = os.getenv("RAG_VECTOR_STORE", "qdrant")
@@ -116,6 +130,12 @@ class Config:
 
         if self.ui_display_limit < 50:
             return False, "UI_DISPLAY_LIMIT must be at least 50 characters"
+
+        if self.max_delegation_depth < 1 or self.max_delegation_depth > 10:
+            return False, "MAX_DELEGATION_DEPTH must be between 1 and 10"
+
+        if self.absolute_max_depth < self.max_delegation_depth:
+            return False, "ABSOLUTE_MAX_DEPTH must be >= MAX_DELEGATION_DEPTH"
 
         return True, None
 

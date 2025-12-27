@@ -5,6 +5,7 @@ This module provides state management, checkpointing, and message passing
 while preserving the dynamic meta-agent behavior.
 """
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional
@@ -36,7 +37,11 @@ class LangGraphExecutor:
         self.graph_builder = MagenticGraphBuilder(meta_system)
 
     async def execute_query(
-        self, query: str, stream: bool = False, plan: Optional[ExecutionPlan] = None
+        self, 
+        query: str, 
+        stream: bool = False, 
+        plan: Optional[ExecutionPlan] = None,
+        cancel_event: Optional[asyncio.Event] = None
     ) -> Dict[str, Any]:
         """Execute a query using LangGraph.
 
@@ -44,10 +49,19 @@ class LangGraphExecutor:
             query: User query to process
             stream: Whether to stream output
             plan: Optional pre-created execution plan. If not provided, creates a new one.
+            cancel_event: Optional event to signal cancellation
 
         Returns:
             Execution result with output and metadata
         """
+        # Helper to check if cancelled
+        def is_cancelled():
+            return cancel_event is not None and cancel_event.is_set()
+
+        # Check cancellation before starting
+        if is_cancelled():
+            raise asyncio.CancelledError("Execution cancelled")
+
         # Use provided plan or create new one
         if plan is None:
             context = self.meta_system._build_context()

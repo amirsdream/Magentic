@@ -68,8 +68,9 @@ class MetaAgentSystem:
         # Visualization
         self.visualizer = ExecutionVisualizer()
 
-        # Execution settings
-        self.absolute_max_depth = 5
+        # Execution settings from config
+        self.max_delegation_depth = config.max_delegation_depth
+        self.absolute_max_depth = config.absolute_max_depth
         self.max_parallel_agents = config.max_parallel_agents
         self._semaphore = asyncio.Semaphore(self.max_parallel_agents)
 
@@ -80,8 +81,8 @@ class MetaAgentSystem:
 
         Args:
             query: User's query.
-            depth: Current execution depth (for hierarchical agents).
-            max_depth: Maximum depth for this query branch.
+            depth: Current execution depth (for hierarchical delegation).
+            max_depth: Maximum depth for delegation (uses config default if None).
 
         Returns:
             Result dictionary with final answer and execution trace.
@@ -98,9 +99,9 @@ class MetaAgentSystem:
                 },
             }
 
+        # Use config default if not specified
         if max_depth is None:
-            max_depth = self._analyze_query_complexity(query)
-            logger.info(f"🎯 Query complexity analysis: max_depth={max_depth}")
+            max_depth = self.max_delegation_depth
 
         max_depth = min(max_depth, self.absolute_max_depth)
 
@@ -543,17 +544,3 @@ class MetaAgentSystem:
     def show_memory_visualization(self) -> None:
         """Display conversation memory visualization."""
         self.visualizer.show_memory_visualization(self.conversation_history)
-
-    def _analyze_query_complexity(self, query: str) -> int:
-        """Analyze query to determine appropriate max execution depth."""
-        word_count = len(query.split())
-
-        if word_count < 10:
-            depth, level = 2, "Simple"
-        elif word_count < 25:
-            depth, level = 3, "Moderate"
-        else:
-            depth, level = 4, "Complex"
-
-        logger.info(f"📊 Initial assessment: {level} ({word_count} words) → max_depth: {depth}")
-        return depth

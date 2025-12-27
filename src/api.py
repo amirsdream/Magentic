@@ -72,6 +72,9 @@ executor: LangGraphExecutor = None  # type: ignore
 # Active WebSocket connections
 active_connections: List[WebSocket] = []
 
+# Cancellation tokens for active executions (websocket -> Event)
+cancellation_tokens: Dict[WebSocket, asyncio.Event] = {}
+
 
 class QueryRequest(BaseModel):
     """Query request model."""
@@ -455,44 +458,152 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # Get username from query params or default to guest
     username = websocket.query_params.get("username", "guest")
+    
+    # Current execution task (if any)
+    current_task: Optional[asyncio.Task] = None
+    cancel_event: Optional[asyncio.Event] = None
+    
+    # Track current query and session for saving stopped message
+    current_query: Optional[str] = None
+    current_session_id: Optional[str] = None
+
+    async def handle_message(message_data: dict):
+        """Handle incoming WebSocket message."""
+        nonlocal current_task, cancel_event, current_query, current_session_id
+        
+        message_type = message_data.get("type", "")
+        
+        # Handle stop message
+        if message_type == "stop":
+            logger.info("Stop message received")
+            if cancel_event is not None:
+                cancel_event.set()
+                logger.info("Cancellation signal sent to running execution")
+            if current_task is not None and not current_task.done():
+                current_task.cancel()
+                logger.info("Execution task cancelled")
+            
+            # Save stopped message to database if we have a session
+            stopped_message = "Execution stopped by user"
+            if current_session_id and not username.startswith("guest"):
+                try:
+                    from .database import SessionLocal
+                    db = SessionLocal()
+                    try:
+                        add_chat_message(db, current_session_id, "assistant", stopped_message, None)
+                        logger.info(f"Saved stopped message to session {current_session_id}")
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.error(f"Failed to save stopped message: {e}")
+            
+            await websocket.send_json({
+                "type": "stopped",
+                "message": stopped_message
+            })
+            
+            # Clear current query/session
+            current_query = None
+            current_session_id = None
+            return
+        
+        # Handle query message
+        query = message_data.get("query", "")
+        session_id = message_data.get("session_id", "")
+        if not query:
+            await websocket.send_json({"type": "error", "message": "Empty query"})
+            return
+
+        # Cancel any previous execution
+        if current_task is not None and not current_task.done():
+            if cancel_event is not None:
+                cancel_event.set()
+            current_task.cancel()
+            try:
+                await current_task
+            except asyncio.CancelledError:
+                pass
+
+        # Track current query and session
+        current_query = query
+        current_session_id = session_id if session_id else None
+
+        # Create new cancellation token
+        cancel_event = asyncio.Event()
+        cancellation_tokens[websocket] = cancel_event
+
+        # Send acknowledgment
+        await websocket.send_json(
+            {"type": "status", "message": "Processing query...", "stage": "received"}
+        )
+
+        # Start query processing as a task
+        async def run_query():
+            nonlocal current_query, current_session_id
+            try:
+                await process_query_with_updates(websocket, query, username, cancel_event)
+            except asyncio.CancelledError:
+                logger.info("Query processing cancelled")
+                # Don't send stopped message here - it's sent by handle_message
+            except Exception as e:
+                logger.error(f"Error processing query: {e}")
+                try:
+                    await websocket.send_json({"type": "error", "message": str(e)})
+                except Exception:
+                    pass
+            finally:
+                if websocket in cancellation_tokens:
+                    del cancellation_tokens[websocket]
+                # Clear tracking after completion
+                current_query = None
+                current_session_id = None
+
+        current_task = asyncio.create_task(run_query())
 
     try:
         while True:
-            # Receive query from client
+            # Receive message from client
             data = await websocket.receive_text()
             query_data = json.loads(data)
-            query = query_data.get("query", "")
-
-            if not query:
-                await websocket.send_json({"type": "error", "message": "Empty query"})
-                continue
-
-            # Send acknowledgment
-            await websocket.send_json(
-                {"type": "status", "message": "Processing query...", "stage": "received"}
-            )
-
-            try:
-                # Process query with real-time updates
-                await process_query_with_updates(websocket, query, username)
-            except Exception as e:
-                logger.error(f"Error processing query: {e}")
-                await websocket.send_json({"type": "error", "message": str(e)})
+            await handle_message(query_data)
 
     except WebSocketDisconnect:
-        active_connections.remove(websocket)
+        if websocket in active_connections:
+            active_connections.remove(websocket)
+        # Cancel any running execution
+        if cancel_event is not None:
+            cancel_event.set()
+        if current_task is not None and not current_task.done():
+            current_task.cancel()
+        if websocket in cancellation_tokens:
+            del cancellation_tokens[websocket]
         logger.info("WebSocket client disconnected")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         if websocket in active_connections:
             active_connections.remove(websocket)
+        if websocket in cancellation_tokens:
+            del cancellation_tokens[websocket]
 
 
-async def process_query_with_updates(websocket: WebSocket, query: str, username: str = "guest"):
+async def process_query_with_updates(
+    websocket: WebSocket, 
+    query: str, 
+    username: str = "guest",
+    cancel_event: Optional[asyncio.Event] = None
+):
     """Process query and send real-time updates via WebSocket."""
     try:
+        # Helper to check if cancelled
+        def is_cancelled():
+            return cancel_event is not None and cancel_event.is_set()
+        
         # Reset token tracker for this execution
         reset_tracker()
+
+        # Check cancellation before starting
+        if is_cancelled():
+            raise asyncio.CancelledError("Execution cancelled before start")
 
         # Send planning stage
         await websocket.send_json(
@@ -501,6 +612,10 @@ async def process_query_with_updates(websocket: WebSocket, query: str, username:
 
         # Create execution plan
         plan = meta_system.coordinator.create_execution_plan(query)
+
+        # Check cancellation after planning
+        if is_cancelled():
+            raise asyncio.CancelledError("Execution cancelled after planning")
 
         # Compute layers for each agent
         layers = plan.get_execution_layers()
@@ -553,8 +668,12 @@ async def process_query_with_updates(websocket: WebSocket, query: str, username:
             }
         )
 
-        # Execute with custom callback for progress - pass the SAME plan
-        result = await execute_with_progress(websocket, query, plan)
+        # Check cancellation before execution
+        if is_cancelled():
+            raise asyncio.CancelledError("Execution cancelled before agent execution")
+
+        # Execute with custom callback for progress - pass the SAME plan and cancel_event
+        result = await execute_with_progress(websocket, query, plan, cancel_event)
 
         # Wait to ensure all agent_complete events are sent before the final complete event
         await asyncio.sleep(0.2)
@@ -597,24 +716,42 @@ async def process_query_with_updates(websocket: WebSocket, query: str, username:
             }
         )
 
+    except asyncio.CancelledError:
+        logger.info("Query processing was cancelled")
+        # Re-raise to be handled by the caller
+        raise
     except Exception as e:
         logger.error(f"Error in process_query_with_updates: {e}")
         await websocket.send_json({"type": "error", "message": str(e)})
 
 
-async def execute_with_progress(websocket: WebSocket, query: str, plan) -> Dict[str, Any]:
+async def execute_with_progress(
+    websocket: WebSocket, 
+    query: str, 
+    plan,
+    cancel_event: Optional[asyncio.Event] = None
+) -> Dict[str, Any]:
     """Execute query and send progress updates.
 
     Args:
         websocket: WebSocket connection for sending updates
         query: User query to process
         plan: ExecutionPlan to use (same plan sent to frontend)
+        cancel_event: Optional event to signal cancellation
     """
+
+    # Helper to check if cancelled
+    def is_cancelled():
+        return cancel_event is not None and cancel_event.is_set()
 
     # Monkey-patch the meta_system to send updates
     original_execute = meta_system.execute_agent_for_langgraph
 
     async def execute_with_notification(*args, **kwargs):
+        # Check cancellation before each agent
+        if is_cancelled():
+            raise asyncio.CancelledError("Execution cancelled")
+        
         agent_id = kwargs.get("agent_id", args[0] if args else "unknown")
         role = kwargs.get("role", args[1] if len(args) > 1 else "unknown")
         task = kwargs.get("task", args[2] if len(args) > 2 else "")
@@ -688,6 +825,10 @@ async def execute_with_progress(websocket: WebSocket, query: str, plan) -> Dict[
 
         logger.info(f"Agent {agent_id} output: {output_str[:500]}")
 
+        # Check cancellation after agent execution
+        if is_cancelled():
+            raise asyncio.CancelledError("Execution cancelled after agent completed")
+
         # Send agent complete with full output and token usage
         logger.info(
             f"Sending agent_complete event for {agent_id} with {len(tool_calls)} tool calls"
@@ -727,7 +868,8 @@ async def execute_with_progress(websocket: WebSocket, query: str, plan) -> Dict[
 
     try:
         # Pass the SAME plan to executor to ensure consistent agent IDs
-        result = await executor.execute_query(query, plan=plan)
+        # Pass cancel_event to allow interruption during execution
+        result = await executor.execute_query(query, plan=plan, cancel_event=cancel_event)
         return result
     finally:
         # Restore original method

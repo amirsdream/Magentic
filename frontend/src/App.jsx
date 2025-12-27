@@ -200,17 +200,16 @@ function App() {
       plan: null,
     });
 
-    // Send to WebSocket
-    sendMessage({ query: content });
+    // Send to WebSocket with session_id for tracking
+    sendMessage({ query: content, session_id: currentConvId });
   }, [isConnected, sendMessage, user, activeConversationId, createConversation, addMessage]);
 
   // Handle stop execution
   const handleStop = useCallback(() => {
-    // Send stop signal if supported
+    // Send stop signal - let the backend response handler clear the execution
     sendMessage({ type: 'stop' });
-    setCurrentExecution(null);
-    clearExecution();
-  }, [sendMessage, clearExecution]);
+    // Don't clear execution here - wait for 'stopped' message from backend
+  }, [sendMessage]);
 
   // Toggle step expansion
   const toggleStep = useCallback((key) => {

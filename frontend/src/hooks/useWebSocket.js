@@ -240,6 +240,57 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
       setCurrentExecution(null);
       break;
 
+    case WEBSOCKET_EVENTS.STOPPED:
+      // Mark all running/pending agents as stopped (if any)
+      setCurrentExecution((prev) => {
+        if (!prev) {
+          // No execution was in progress, just return null
+          console.log('Stop acknowledged - no active execution');
+          return null;
+        }
+        
+        if (!prev.agents) {
+          // Execution started but no agents yet
+          return {
+            ...prev,
+            stage: 'stopped',
+            stageMessage: data.message || 'Execution stopped by user',
+          };
+        }
+        
+        const updatedAgents = prev.agents.map((agent) => ({
+          ...agent,
+          status: agent.status === AGENT_STATUS.RUNNING || agent.status === AGENT_STATUS.PENDING
+            ? AGENT_STATUS.STOPPED
+            : agent.status,
+        }));
+
+        return {
+          ...prev,
+          stage: 'stopped',
+          stageMessage: data.message || 'Execution stopped by user',
+          agents: updatedAgents,
+        };
+      });
+
+      // Add stopped message
+      setMessages((prev) => {
+        // Remove loading message if present
+        const filtered = prev.filter(m => !m.isLoading);
+        return [
+          ...filtered,
+          {
+            type: 'info',
+            content: data.message || 'Execution stopped by user',
+            timestamp: new Date(),
+          },
+        ];
+      });
+
+      // Clear execution after a brief delay to show stopped state
+      setTimeout(() => setCurrentExecution(null), 1000);
+      break;
+
     default:
       console.warn('Unknown message type:', data.type);
   }

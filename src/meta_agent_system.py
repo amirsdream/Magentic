@@ -25,6 +25,7 @@ from .config import Config
 from .coordinator.planner import MetaCoordinator
 from .role_library import RoleLibrary
 from .ui.visualization import ExecutionVisualizer
+from .agents.token_tracker import get_tracker
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -32,6 +33,10 @@ if TYPE_CHECKING:
     from .tools.manager import ToolManager
 
 logger = logging.getLogger(__name__)
+
+# Track current agent for token tracking
+_current_agent_id: Optional[str] = None
+_current_agent_role: Optional[str] = None
 
 
 class MetaAgentSystem:
@@ -69,8 +74,12 @@ class MetaAgentSystem:
         self.conversation_history: List[Dict[str, str]] = []
         # Visualization
         self.visualizer = ExecutionVisualizer()
-        # Hierarchical execution settings - dynamic based on query complexity
-        self.absolute_max_depth = 5  # Safety limit to prevent infinite recursion
+        # Hierarchical execution settings from config
+        self.max_delegation_depth = config.max_delegation_depth
+        self.absolute_max_depth = config.absolute_max_depth
+        self.max_subtasks_per_delegation = config.max_subtasks_per_delegation
+        self.max_total_delegations = config.max_total_delegations
+        self._delegation_counter = 0  # Tracks total delegations per root query
         # Concurrency control - limit parallel agents to prevent system overload
         self.max_parallel_agents = config.max_parallel_agents
         self._semaphore = asyncio.Semaphore(self.max_parallel_agents)
@@ -112,12 +121,47 @@ class MetaAgentSystem:
                     "Install it with: pip install langchain-anthropic"
                 )
             return ChatAnthropic(
-                model_name=config.anthropic_model,  # ChatAnthropic uses model_name, not model
-                anthropic_api_key=config.anthropic_api_key,  # type: ignore
-                temperature=config.llm_temperature,
+                model_name=config.anthropic_model,  # type: ignore[call-arg]
+                api_key=config.anthropic_api_key,  # type: ignore[call-arg]
+                temperature=config.llm_temperature,  # type: ignore[call-arg]
             )
         else:
             raise ValueError(f"Unsupported LLM provider: {config.llm_provider}")
+
+    def _track_tokens(self, response: Any, agent_id: str = "", role: str = "") -> None:
+        """Track token usage from an LLM response.
+
+        Args:
+            response: LLM response object
+            agent_id: Agent identifier (optional)
+            role: Agent role name (optional)
+        """
+        global _current_agent_id, _current_agent_role
+        tracker = get_tracker()
+
+        # Use passed params or fall back to module-level tracking
+        aid = agent_id or _current_agent_id
+        r = role or _current_agent_role
+
+        if aid and r:
+            tracker.add_agent_usage(aid, r, response)
+            logger.debug(f"Tracked tokens for {aid} ({r})")
+        else:
+            # Track as general usage if no agent context
+            usage = tracker.extract_usage_from_response(response)
+            logger.debug(f"Tracked general tokens: {usage.to_dict()}")
+
+    def _set_current_agent(self, agent_id: str, role: str) -> None:
+        """Set current agent for token tracking."""
+        global _current_agent_id, _current_agent_role
+        _current_agent_id = agent_id
+        _current_agent_role = role
+
+    def _clear_current_agent(self) -> None:
+        """Clear current agent tracking."""
+        global _current_agent_id, _current_agent_role
+        _current_agent_id = None
+        _current_agent_role = None
 
     def process_query(
         self, query: str, depth: int = 0, max_depth: int | None = None
@@ -126,13 +170,13 @@ class MetaAgentSystem:
 
         Args:
             query: User's query.
-            depth: Current execution depth (for hierarchical agents).
-            max_depth: Maximum depth for this query branch (auto-determined if None).
+            depth: Current execution depth (for hierarchical delegation).
+            max_depth: Maximum depth for delegation (uses config default if None).
 
         Returns:
             Result dictionary with final answer and execution trace.
         """
-        # Enforce absolute max depth as guardrail
+        # Enforce absolute max depth as safety guardrail
         if depth >= self.absolute_max_depth:
             logger.warning(f"🛑 Max depth {self.absolute_max_depth} reached, stopping recursion")
             return {
@@ -145,13 +189,16 @@ class MetaAgentSystem:
                 },
             }
 
-        # Determine max_depth dynamically based on query complexity (first call only)
+        # Use config default if not specified
         if max_depth is None:
-            max_depth = self._analyze_query_complexity(query)
-            logger.info(f"🎯 Query complexity analysis: max_depth={max_depth}")
+            max_depth = self.max_delegation_depth
 
-        # Enforce that we don't exceed absolute max
+        # Cap max_depth at absolute limit
         max_depth = min(max_depth, self.absolute_max_depth)
+
+        # Reset delegation counter at root level
+        if depth == 0:
+            self._delegation_counter = 0
 
         indent = "  " * depth
         logger.info(f"{indent}🚀 Processing query (depth {depth}/{max_depth}): {query[:100]}...")
@@ -345,10 +392,17 @@ class MetaAgentSystem:
             logger.error(f"❌ {error_msg}")
             return f"[ERROR: {error_msg}]"
 
+        # Set current agent for token tracking
+        agent_id = f"{role_name}_{agent_index}"
+        self._set_current_agent(agent_id, role_name)
+
         # Execute agent
         result = self._execute_agent(
             role, task, query, previous_outputs, [], depth=depth, max_depth=max_depth
         )
+
+        # Clear agent tracking
+        self._clear_current_agent()
 
         # Extract content from dict result
         output = result.get("content", str(result)) if isinstance(result, dict) else str(result)
@@ -531,11 +585,18 @@ class MetaAgentSystem:
         depends_on = agent_spec.get("depends_on", [])
         previous_outputs = [completed_outputs[i] for i in depends_on if i in completed_outputs]
 
+        # Set current agent for token tracking
+        agent_id = f"{role_name}_{agent_index}"
+        self._set_current_agent(agent_id, role_name)
+
         # Execute in thread pool to avoid blocking (LLM calls are blocking)
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None, self._execute_agent, role, task, query, previous_outputs, [], depth, max_depth
         )
+
+        # Clear agent tracking
+        self._clear_current_agent()
 
         # Extract content from dict result
         output = result.get("content", str(result)) if isinstance(result, dict) else str(result)
@@ -648,6 +709,9 @@ class MetaAgentSystem:
         # Ensure conversation_history is a list (not None) for thread pool
         conv_hist = conversation_history if conversation_history is not None else []
 
+        # Set current agent for token tracking
+        self._set_current_agent(agent_id, role)
+
         # Execute in thread pool
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
@@ -661,6 +725,9 @@ class MetaAgentSystem:
             0,
             3,
         )
+
+        # Clear agent tracking
+        self._clear_current_agent()
 
         logger.info(f"✅ {agent_id} ({role}) completed")
         return result
@@ -787,6 +854,7 @@ IMPORTANT: If completing directly, keep your response under {self.config.ui_disp
                 logger.error(f"⚠️ {role.name} needs tools but no tools are available!")
                 logger.warning(f"Falling back to LLM without tools")
                 response = self.llm.invoke([system_msg, task_msg], config=config)
+                self._track_tokens(response)
                 return {"content": str(response.content), "tool_calls": []}
 
             # Special handling for researcher role - more reliable than tool calling
@@ -805,6 +873,7 @@ IMPORTANT: Keep search queries short and focused."""
                 )
 
                 search_response = self.llm.invoke([search_prompt, task_msg], config=config)
+                self._track_tokens(search_response)
                 search_queries = str(search_response.content).strip().split("\n")
                 search_queries = [q.strip() for q in search_queries if q.strip()][
                     :3
@@ -827,6 +896,7 @@ IMPORTANT: Keep search queries short and focused."""
                     )
                     logger.warning(f"   └─ Falling back to LLM without search")
                     response = self.llm.invoke([system_msg, task_msg], config=config)
+                    self._track_tokens(response)
                     return {"content": str(response.content), "tool_calls": []}
 
                 for query in search_queries:
@@ -880,6 +950,7 @@ IMPORTANT: Keep search queries short and focused."""
                         ],
                         config=config,
                     )
+                    self._track_tokens(final_response)
 
                     # Debug: check response structure
                     logger.info(f"🔍 Response type: {type(final_response)}")
@@ -897,6 +968,7 @@ IMPORTANT: Keep search queries short and focused."""
                         # Fallback: try without the search context
                         logger.warning(f"⚠️ Retrying without search context...")
                         fallback = self.llm.invoke([system_msg, task_msg], config=config)
+                        self._track_tokens(fallback)
                         result_content = str(fallback.content)
                         logger.info(f"✅ Fallback response: {len(result_content)} chars")
 
@@ -911,6 +983,7 @@ IMPORTANT: Keep search queries short and focused."""
                 else:
                     logger.warning(f"⚠️ No search results obtained, providing answer without search")
                     response = self.llm.invoke([system_msg, task_msg], config=config)
+                    self._track_tokens(response)
                     result_content = str(response.content)
                     logger.info(
                         f"✅ {role.name} generated fallback response: {len(result_content)} chars"
@@ -1012,6 +1085,7 @@ IMPORTANT: Keep search queries short and focused."""
                         ],
                         config=final_config,
                     )
+                    self._track_tokens(final_response)
                     return {
                         "content": str(final_response.content),
                         "tool_calls": recorded_tool_calls,
@@ -1020,21 +1094,50 @@ IMPORTANT: Keep search queries short and focused."""
             return {"content": str(response.content), "tool_calls": []}
         else:
             response = self.llm.invoke([system_msg, task_msg], config=config)
+            self._track_tokens(response)
             response_content = str(response.content)
 
             # Check if delegation was requested (and is allowed)
             if role.can_delegate and depth < max_depth:
+                # Check total delegation limit
+                if self._delegation_counter >= self.max_total_delegations:
+                    logger.warning(
+                        f"⚠️ Max total delegations ({self.max_total_delegations}) reached, "
+                        f"returning direct response"
+                    )
+                    return {"content": response_content, "tool_calls": []}
+
                 try:
                     # Try to parse as JSON delegation request
                     delegation_data = json.loads(response_content)
                     if delegation_data.get("needs_delegation") and delegation_data.get("subtasks"):
+                        subtasks = delegation_data["subtasks"]
+
+                        # Limit number of subtasks
+                        if len(subtasks) > self.max_subtasks_per_delegation:
+                            logger.warning(
+                                f"⚠️ Limiting subtasks from {len(subtasks)} to {self.max_subtasks_per_delegation}"
+                            )
+                            subtasks = subtasks[: self.max_subtasks_per_delegation]
+
                         logger.info(
-                            f"🔀 {role.name} is delegating to {len(delegation_data['subtasks'])} sub-agents (depth {depth+1})"
+                            f"🔀 {role.name} is delegating to {len(subtasks)} sub-agents "
+                            f"(depth {depth+1}, total delegations: {self._delegation_counter + 1})"
                         )
+
+                        # Increment delegation counter
+                        self._delegation_counter += 1
 
                         # Execute sub-agents recursively
                         sub_results = []
-                        for subtask_spec in delegation_data["subtasks"]:
+                        for subtask_spec in subtasks:
+                            # Check limit again before each subtask
+                            if self._delegation_counter >= self.max_total_delegations:
+                                logger.warning(
+                                    f"⚠️ Stopping delegation: max total ({self.max_total_delegations}) reached"
+                                )
+                                break
+
                             sub_role_name = subtask_spec.get("role")
                             sub_task = subtask_spec.get("task")
 
@@ -1063,6 +1166,7 @@ Combine these results to complete your original task."""
                             final_response = self.llm.invoke(
                                 [system_msg, synthesis_msg], config=config
                             )
+                            self._track_tokens(final_response)
                             return {"content": str(final_response.content), "tool_calls": []}
                 except json.JSONDecodeError:
                     # Not JSON, return as-is
@@ -1137,36 +1241,3 @@ Combine these results to complete your original task."""
     def show_memory_visualization(self) -> None:
         """Display conversation memory visualization."""
         self.visualizer.show_memory_visualization(self.conversation_history)
-
-    def _analyze_query_complexity(self, query: str) -> int:
-        """Analyze query to determine appropriate max execution depth.
-
-        This is a simple heuristic - the real complexity assessment happens
-        in the LLM coordinator which decides the actual agent topology.
-
-        Args:
-            query: User's query.
-
-        Returns:
-            Recommended max depth (1-5).
-        """
-        # Simple length-based heuristic - let the LLM do the real assessment
-        word_count = len(query.split())
-
-        # Very simple: short, direct questions
-        if word_count < 10:
-            depth = 2
-            level = "Simple"
-        # Moderate: typical questions
-        elif word_count < 25:
-            depth = 3
-            level = "Moderate"
-        # Complex: detailed or multi-part questions
-        else:
-            depth = 4
-            level = "Complex"
-
-        logger.info(f"📊 Initial assessment: {level} ({word_count} words) → max_depth: {depth}")
-        logger.info(f"   (LLM coordinator will determine actual agent topology)")
-
-        return depth

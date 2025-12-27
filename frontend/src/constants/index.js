@@ -14,6 +14,7 @@ export const WEBSOCKET_EVENTS = {
   AGENT_START: 'agent_start',
   AGENT_COMPLETE: 'agent_complete',
   COMPLETE: 'complete',
+  STOPPED: 'stopped',
   ERROR: 'error',
 };
 
@@ -21,6 +22,7 @@ export const AGENT_STATUS = {
   PENDING: 'pending',
   RUNNING: 'running',
   COMPLETE: 'complete',
+  STOPPED: 'stopped',
   ERROR: 'error',
 };
 
