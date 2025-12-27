@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="1200" height="900" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .title { font-family: Arial, sans-serif; font-size: 24px; font-weight: bold; fill: #333; }
+      .box-title { font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; fill: #fff; }
+      .box-text { font-family: Arial, sans-serif; font-size: 11px; fill: #333; }
+      .arrow { stroke: #666; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .layer-label { font-family: Arial, sans-serif; font-size: 12px; font-weight: bold; fill: #666; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#666" />
+    </marker>
+  </defs>
+  
+  <!-- Title -->
+  <text x="600" y="30" text-anchor="middle" class="title">Magentic System Architecture</text>
+  
+  <!-- Frontend Layer -->
+  <g id="frontend">
+    <rect x="50" y="60" width="250" height="100" fill="#e1f5ff" stroke="#01579b" stroke-width="2" rx="5"/>
+    <text x="175" y="85" text-anchor="middle" class="box-title" fill="#01579b">Frontend Layer</text>
+    <text x="65" y="105" class="box-text">• React 18 Web UI</text>
+    <text x="65" y="125" class="box-text">• WebSocket Client</text>
+    <text x="65" y="145" class="box-text">• Real-time Progress Display</text>
+  </g>
+  
+  <!-- API Layer -->
+  <g id="api">
+    <rect x="50" y="190" width="250" height="100" fill="#fff3e0" stroke="#e65100" stroke-width="2" rx="5"/>
+    <text x="175" y="215" text-anchor="middle" class="box-title" fill="#e65100">API Layer</text>
+    <text x="65" y="235" class="box-text">• FastAPI Server</text>
+    <text x="65" y="255" class="box-text">• REST Endpoints (/query, /health)</text>
+    <text x="65" y="275" class="box-text">• WebSocket Handler (/ws)</text>
+  </g>
+  
+  <!-- Coordination Layer -->
+  <g id="coordination">
+    <rect x="350" y="60" width="250" height="100" fill="#f3e5f5" stroke="#4a148c" stroke-width="2" rx="5"/>
+    <text x="475" y="85" text-anchor="middle" class="box-title" fill="#4a148c">Coordination Layer</text>
+    <text x="365" y="105" class="box-text">• Meta-Coordinator (AI Planner)</text>
+    <text x="365" y="125" class="box-text">• Complexity Analyzer</text>
+    <text x="365" y="145" class="box-text">• ExecutionPlan Generator</text>
+  </g>
+  
+  <!-- Execution Layer -->
+  <g id="execution">
+    <rect x="350" y="190" width="250" height="100" fill="#e8f5e9" stroke="#1b5e20" stroke-width="2" rx="5"/>
+    <text x="475" y="215" text-anchor="middle" class="box-title" fill="#1b5e20">Execution Layer</text>
+    <text x="365" y="235" class="box-text">• LangGraph DAG Executor</text>
+    <text x="365" y="255" class="box-text">• State Manager</text>
+    <text x="365" y="275" class="box-text">• Checkpoint System</text>
+  </g>
+  
+  <!-- Agent Layer -->
+  <g id="agents">
+    <rect x="650" y="60" width="250" height="100" fill="#fff9c4" stroke="#f57f17" stroke-width="2" rx="5"/>
+    <text x="775" y="85" text-anchor="middle" class="box-title" fill="#f57f17">Agent Layer</text>
+    <text x="665" y="105" class="box-text">• Role Library (8 roles)</text>
+    <text x="665" y="125" class="box-text">• Dynamic Agent Creation</text>
+    <text x="665" y="145" class="box-text">• Tool Integration</text>
+  </g>
+  
+  <!-- RAG Layer -->
+  <g id="rag">
+    <rect x="650" y="190" width="250" height="100" fill="#fce4ec" stroke="#880e4f" stroke-width="2" rx="5"/>
+    <text x="775" y="215" text-anchor="middle" class="box-title" fill="#880e4f">RAG Layer</text>
+    <text x="665" y="235" class="box-text">• RAG Service</text>
+    <text x="665" y="255" class="box-text">• Embeddings (Ollama/OpenAI)</text>
+    <text x="665" y="275" class="box-text">• Vector Store (Qdrant/Chroma)</text>
+  </g>
+  
+  <!-- LLM Providers -->
+  <g id="llm">
+    <rect x="950" y="60" width="200" height="100" fill="#e0f2f1" stroke="#004d40" stroke-width="2" rx="5"/>
+    <text x="1050" y="85" text-anchor="middle" class="box-title" fill="#004d40">LLM Providers</text>
+    <text x="965" y="105" class="box-text">• Ollama (llama3.2)</text>
+    <text x="965" y="125" class="box-text">• OpenAI (gpt-4o)</text>
+    <text x="965" y="145" class="box-text">• Claude (3.5 Sonnet)</text>
+  </g>
+  
+  <!-- Observability -->
+  <g id="observability">
+    <rect x="950" y="190" width="200" height="100" fill="#ffe0b2" stroke="#e65100" stroke-width="2" rx="5"/>
+    <text x="1050" y="215" text-anchor="middle" class="box-title" fill="#e65100">Observability</text>
+    <text x="965" y="235" class="box-text">• Phoenix Tracing</text>
+    <text x="965" y="255" class="box-text">• LangSmith Logging</text>
+    <text x="965" y="275" class="box-text">• Application Logs</text>
+  </g>
+  
+  <!-- Execution Flow Diagram -->
+  <g id="execution-flow">
+    <text x="50" y="340" class="layer-label">EXECUTION FLOW</text>
+    <rect x="50" y="355" width="1100" height="520" fill="#fafafa" stroke="#ccc" stroke-width="1" rx="5"/>
+    
+    <!-- User Query -->
+    <ellipse cx="150" cy="400" rx="80" ry="35" fill="#a5d6a7" stroke="#2e7d32" stroke-width="2"/>
+    <text x="150" y="405" text-anchor="middle" class="box-text" font-weight="bold">User Query</text>
+    
+    <!-- Meta-Coordinator -->
+    <rect x="280" y="370" width="140" height="60" fill="#ce93d8" stroke="#6a1b9a" stroke-width="2" rx="5"/>
+    <text x="350" y="395" text-anchor="middle" class="box-text" font-weight="bold">Meta-Coordinator</text>
+    <text x="350" y="415" text-anchor="middle" class="box-text">Analyze &amp; Plan</text>
+    
+    <!-- Execution Plan -->
+    <rect x="460" y="370" width="140" height="60" fill="#90caf9" stroke="#1565c0" stroke-width="2" rx="5"/>
+    <text x="530" y="395" text-anchor="middle" class="box-text" font-weight="bold">Execution Plan</text>
+    <text x="530" y="415" text-anchor="middle" class="box-text">Agents &amp; Dependencies</text>
+    
+    <!-- Layer 0: Parallel Agents -->
+    <text x="50" y="490" class="layer-label">LAYER 0 (Parallel)</text>
+    <rect x="240" y="500" width="120" height="60" fill="#ffcc80" stroke="#e65100" stroke-width="2" rx="5"/>
+    <text x="300" y="525" text-anchor="middle" class="box-text" font-weight="bold">researcher_0</text>
+    <text x="300" y="545" text-anchor="middle" class="box-text" font-size="9">Python web</text>
+    
+    <rect x="380" y="500" width="120" height="60" fill="#ffcc80" stroke="#e65100" stroke-width="2" rx="5"/>
+    <text x="440" y="525" text-anchor="middle" class="box-text" font-weight="bold">researcher_1</text>
+    <text x="440" y="545" text-anchor="middle" class="box-text" font-size="9">Rust web</text>
+    
+    <!-- RAG Tool -->
+    <rect x="540" y="505" width="100" height="50" fill="#f48fb1" stroke="#c2185b" stroke-width="2" rx="5"/>
+    <text x="590" y="525" text-anchor="middle" class="box-text" font-weight="bold">RAG Search</text>
+    <text x="590" y="540" text-anchor="middle" class="box-text" font-size="9">Vector DB</text>
+    
+    <!-- Layer 1: Analyzer -->
+    <text x="50" y="620" class="layer-label">LAYER 1</text>
+    <rect x="310" y="630" width="120" height="60" fill="#90caf9" stroke="#1565c0" stroke-width="2" rx="5"/>
+    <text x="370" y="655" text-anchor="middle" class="box-text" font-weight="bold">analyzer_2</text>
+    <text x="370" y="675" text-anchor="middle" class="box-text" font-size="9">Compare both</text>
+    
+    <!-- Layer 2: Synthesizer -->
+    <text x="50" y="750" class="layer-label">LAYER 2</text>
+    <rect x="310" y="760" width="120" height="60" fill="#ce93d8" stroke="#6a1b9a" stroke-width="2" rx="5"/>
+    <text x="370" y="785" text-anchor="middle" class="box-text" font-weight="bold">synthesizer_3</text>
+    <text x="370" y="805" text-anchor="middle" class="box-text" font-size="9">Final report</text>
+    
+    <!-- Final Output -->
+    <ellipse cx="1000" cy="790" rx="80" ry="35" fill="#ef9a9a" stroke="#c62828" stroke-width="2"/>
+    <text x="1000" y="790" text-anchor="middle" class="box-text" font-weight="bold">Final Output</text>
+    <text x="1000" y="805" text-anchor="middle" class="box-text" font-size="9">Stream to UI</text>
+    
+    <!-- Arrows -->
+    <path d="M 230 400 L 280 400" class="arrow"/>
+    <path d="M 420 400 L 460 400" class="arrow"/>
+    <path d="M 530 430 L 300 500" class="arrow"/>
+    <path d="M 530 430 L 440 500" class="arrow"/>
+    
+    <path d="M 300 560 L 370 630" class="arrow"/>
+    <path d="M 440 560 L 370 630" class="arrow"/>
+    
+    <path d="M 370 690 L 370 760" class="arrow"/>
+    
+    <path d="M 430 790 L 920 790" class="arrow"/>
+    
+    <path d="M 500 530 L 540 530" class="arrow"/>
+    
+    <!-- Parallel indicator -->
+    <text x="320" y="590" text-anchor="middle" class="box-text" fill="#e65100" font-weight="bold">⚡ Parallel</text>
+  </g>
+  
+  <!-- Key Features Box -->
+  <g id="features">
+    <rect x="680" y="630" width="450" height="230" fill="#fff" stroke="#666" stroke-width="2" rx="5"/>
+    <text x="905" y="660" text-anchor="middle" class="box-title" fill="#333">Key Features</text>
+    
+    <text x="700" y="690" class="box-text" font-weight="bold">✓ Dynamic Topology</text>
+    <text x="710" y="710" class="box-text">AI generates unique agent network per query</text>
+    
+    <text x="700" y="735" class="box-text" font-weight="bold">✓ Parallel Execution</text>
+    <text x="710" y="755" class="box-text">Independent agents run concurrently</text>
+    
+    <text x="700" y="780" class="box-text" font-weight="bold">✓ Real-time Streaming</text>
+    <text x="710" y="800" class="box-text">WebSocket updates to UI in real-time</text>
+    
+    <text x="700" y="825" class="box-text" font-weight="bold">✓ Complexity Scaling</text>
+    <text x="710" y="845" class="box-text">1-12+ agents based on query complexity</text>
+  </g>
+  
+  <!-- Footer -->
+  <text x="600" y="890" text-anchor="middle" class="box-text" fill="#999">Magentic - Dynamic Meta-Agent System</text>
+</svg>

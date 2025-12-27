@@ -204,3 +204,39 @@ langgraph_checkpoints/
 *.cert
 secrets/
 credentials/
+
+# MCP (Model Context Protocol)
+.mcp/
+mcp_cache/
+
+# Token tracking / metrics
+metrics/
+*.metrics.json
+
+# Alembic migrations - keep structure but ignore local changes
+alembic/versions/*.pyc
+
+# Frontend specific
+frontend/.env
+frontend/.env.local
+frontend/coverage/
+frontend/.vite/
+
+# Chroma / Vector DBs
+chroma_db/
+.chroma/
+vector_store/
+
+# RAG data
+rag_data/
+embeddings/
+
+# Backup files
+*.backup
+*.bak
+backups/
+
+# Local development
+.local/
+local_config.py
+config.local.yaml

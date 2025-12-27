@@ -1,16 +1,30 @@
 """Database models and setup for user profiles and conversation history."""
 
-from sqlalchemy import create_engine, Column, String, Integer, DateTime, Text, JSON, Boolean
+from sqlalchemy import create_engine, Column, String, Integer, DateTime, Text, JSON, Boolean, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
-from passlib.context import CryptContext
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
+import warnings
+import logging
 
 # Suppress bcrypt version warning from passlib
-import warnings
 warnings.filterwarnings("ignore", message=".*bcrypt.*")
+logging.getLogger("passlib").setLevel(logging.ERROR)
+
+# Fix passlib + bcrypt compatibility issue with Python 3.13
+# Patch bcrypt's __about__ module if needed
+try:
+    import bcrypt
+    if not hasattr(bcrypt, '__about__'):
+        class _About:
+            __version__ = getattr(bcrypt, '__version__', '4.0.0')
+        bcrypt.__about__ = _About()  # type: ignore[attr-defined]
+except ImportError:
+    pass
+
+from passlib.context import CryptContext
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -63,8 +77,40 @@ class UserProfile(Base):
     total_agents_executed = Column(Integer, default=0)
 
 
+class ChatSession(Base):
+    """Chat session to group conversations."""
+    __tablename__ = "chat_sessions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, unique=True, index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("user_profiles.id"), index=True, nullable=False)
+    title = Column(String, default="New Chat")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
+
+
+class ChatMessage(Base):
+    """Individual chat messages within a session."""
+    __tablename__ = "chat_messages"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("chat_sessions.id"), index=True, nullable=False)
+    role = Column(String, nullable=False)  # 'user' or 'assistant'
+    content = Column(Text, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    
+    # Execution metadata (for assistant messages)
+    execution_data = Column(JSON, nullable=True)
+    
+    # Relationships
+    session = relationship("ChatSession", back_populates="messages")
+
+
 class Conversation(Base):
-    """Conversation history per user."""
+    """Conversation history per user (legacy - kept for backward compatibility)."""
     __tablename__ = "conversations"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -188,4 +234,93 @@ def get_user_conversations(db, user_id: int, limit: int = 50):
         .filter(Conversation.user_id == user_id)\
         .order_by(Conversation.timestamp.desc())\
         .limit(limit)\
+        .all()
+
+
+# ============== Chat Session Functions ==============
+
+def create_chat_session(db, user_id: int, session_id: str, title: str = "New Chat") -> ChatSession:
+    """Create a new chat session."""
+    session = ChatSession(
+        session_id=session_id,
+        user_id=user_id,
+        title=title
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def get_chat_session(db, session_id: str) -> Optional[ChatSession]:
+    """Get a chat session by session_id."""
+    return db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+
+
+def get_user_chat_sessions(db, user_id: int, limit: int = 50) -> List[ChatSession]:
+    """Get all chat sessions for a user."""
+    return db.query(ChatSession)\
+        .filter(ChatSession.user_id == user_id)\
+        .order_by(ChatSession.updated_at.desc())\
+        .limit(limit)\
+        .all()
+
+
+def update_chat_session_title(db, session_id: str, title: str) -> Optional[ChatSession]:
+    """Update the title of a chat session."""
+    session = get_chat_session(db, session_id)
+    if session:
+        session.title = title
+        session.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(session)
+    return session
+
+
+def delete_chat_session(db, session_id: str) -> bool:
+    """Delete a chat session and all its messages."""
+    session = get_chat_session(db, session_id)
+    if session:
+        db.delete(session)
+        db.commit()
+        return True
+    return False
+
+
+def add_chat_message(db, session_id: str, role: str, content: str, execution_data: Optional[dict] = None) -> Optional[ChatMessage]:
+    """Add a message to a chat session."""
+    session = get_chat_session(db, session_id)
+    if not session:
+        return None
+    
+    message = ChatMessage(
+        session_id=session.id,
+        role=role,
+        content=content,
+        execution_data=execution_data
+    )
+    db.add(message)
+    
+    # Update session timestamp
+    session.updated_at = datetime.utcnow()
+    
+    # Update title if this is the first user message
+    if role == "user" and session.title == "New Chat":
+        # Use first 50 chars of first message as title
+        session.title = content[:50] + ("..." if len(content) > 50 else "")
+    
+    db.commit()
+    db.refresh(message)
+    return message
+
+
+def get_chat_messages(db, session_id: str) -> List[ChatMessage]:
+    """Get all messages for a chat session."""
+    session = get_chat_session(db, session_id)
+    if not session:
+        return []
+    
+    return db.query(ChatMessage)\
+        .filter(ChatMessage.session_id == session.id)\
+        .order_by(ChatMessage.timestamp.asc())\
         .all()

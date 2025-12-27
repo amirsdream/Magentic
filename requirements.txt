@@ -1,44 +1,100 @@
-# Core dependencies
+# ============================================================================
+# Core LangChain Dependencies
+# ============================================================================
 langchain>=1.2.0
-langchain-community>=0.4.0
-langchain-ollama>=1.0.0
-langchain-openai>=1.1.0
-langchain-anthropic>=0.3.0
 langchain-core>=1.2.0
+langchain-community>=0.4.0
+langchain-text-splitters>=1.1.0
 python-dotenv>=1.0.0
 
-# Tools
-duckduckgo-search>=8.0.0
-ddgs>=0.1.0
+# ============================================================================
+# LLM Providers (install based on your LLM_PROVIDER)
+# ============================================================================
+# For Ollama (LLM_PROVIDER=ollama)
+langchain-ollama>=1.0.0
 
-# Observability
-arize-phoenix>=12.0.0
-openinference-instrumentation-langchain>=0.1.0
+# For OpenAI (LLM_PROVIDER=openai)
+langchain-openai>=1.1.0
+tiktoken>=0.5.0
+
+# For Claude (LLM_PROVIDER=claude)
+langchain-anthropic>=0.3.0
+
+# ============================================================================
+# Embedding Providers (optional, based on RAG_EMBEDDING_PROVIDER)
+# ============================================================================
+# For Voyage AI embeddings (recommended for Claude)
+# Note: langchain-voyageai has version conflicts with langchain-core>=1.2.0
+# Install separately if needed: pip install langchain-voyageai
+# This will downgrade langchain-core to 0.3.x but embeddings will work
+# langchain-voyageai==0.1.3
+
+# Note: langchain-ollama and langchain-openai already installed above
+# provide embeddings for their respective providers
+
+# ============================================================================
+# Tools & Search
+# ============================================================================
+ddgs>=1.6.0  # DuckDuckGo search (newer package)
+
+# ============================================================================
+# RAG Vector Stores
+# ============================================================================
+# Qdrant (recommended for production)
+qdrant-client>=1.7.0
+langchain-qdrant>=0.1.0
+
+# ChromaDB (alternative vector store)
+# Note: Requires Python 3.10-3.13 (onnxruntime has no 3.14 wheels yet)
+chromadb>=0.4.0
+langchain-chroma>=0.1.0
+
+# ============================================================================
+# Multi-Agent & Workflow (LangGraph)
+# ============================================================================
+langgraph>=1.0.0
+langgraph-checkpoint>=3.0.0
+langsmith>=0.5.0
+
+# ============================================================================
+# Observability (Phoenix) - Optional, requires Python <3.13
+# ============================================================================
+# Note: arize-phoenix doesn't fully support Python 3.13+ yet
+# Install manually if using Python 3.10-3.12:
+#   pip install arize-phoenix openinference-instrumentation-langchain
+# arize-phoenix>=12.0.0
+# openinference-instrumentation-langchain>=0.1.0
 opentelemetry-api>=1.39.0
 opentelemetry-sdk>=1.39.0
 opentelemetry-exporter-otlp>=1.39.0
 opentelemetry-exporter-otlp-proto-http>=1.39.0
 
-# Multi-agent and Visualization
-pyvis>=0.3.2
-rich>=13.0.0
-langgraph>=1.0.0
-langgraph-checkpoint>=3.0.0
-langsmith>=0.5.0
+# ============================================================================
+# Web UI & API
+# ============================================================================
 gradio>=5.0.0
-
-# Web API
 fastapi>=0.115.0
 uvicorn>=0.34.0
 websockets>=14.1
+httpx>=0.27.0
 
-# Database
+# ============================================================================
+# Visualization
+# ============================================================================
+pyvis>=0.3.2
+rich>=13.0.0
+
+# ============================================================================
+# Database & Auth
+# ============================================================================
 sqlalchemy>=2.0.0
 alembic>=1.13.0
 passlib>=1.7.4
 bcrypt>=4.1.0,<5.0
 
-# Development dependencies
+# ============================================================================
+# Development Tools (optional)
+# ============================================================================
 pytest>=7.0.0
 pytest-cov>=4.0.0
 black>=23.0.0

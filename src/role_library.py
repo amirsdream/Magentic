@@ -79,6 +79,13 @@ class RoleLibrary:
                 system_prompt="You are a synthesis specialist. Combine all inputs into a comprehensive, well-structured final answer.",
                 needs_tools=False
             ),
+            "retriever": AgentRole(
+                name="retriever",
+                description="Retrieves relevant information from knowledge base using RAG",
+                capabilities=["retrieval", "knowledge_search", "document_lookup"],
+                system_prompt="You are a knowledge retrieval specialist. Search the knowledge base for relevant information and provide context.",
+                needs_tools=True
+            ),
             "coordinator": AgentRole(
                 name="coordinator",
                 description="Manages complex multi-step workflows by delegating to specialized agents",

@@ -6,9 +6,40 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    @apply font-sans antialiased;
+  }
   body {
+    @apply bg-slate-50 text-slate-700 transition-colors duration-200;
+  }
+  .dark body,
+  body.dark,
+  .dark {
     @apply bg-gray-950 text-gray-100;
   }
+}
+
+/* Light/Dark mode CSS variables - Softer light mode */
+:root {
+  --bg-primary: #f8f9fc;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f1f3f9;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  --border-color: #e2e8f0;
+  --accent-purple: #7c3aed;
+  --accent-pink: #db2777;
+}
+
+.dark {
+  --bg-primary: #030712;
+  --bg-secondary: #111827;
+  --bg-tertiary: #1f2937;
+  --text-primary: #f9fafb;
+  --text-secondary: #d1d5db;
+  --text-muted: #6b7280;
+  --border-color: #374151;
 }
 
 @layer utilities {
@@ -24,19 +55,23 @@
 
 /* Markdown styling */
 .markdown-content {
+  @apply text-gray-700;
+}
+
+.dark .markdown-content {
   @apply text-gray-200;
 }
 
 .markdown-content h1 {
-  @apply text-2xl font-bold text-purple-300 mt-4 mb-2;
+  @apply text-2xl font-bold text-purple-600 dark:text-purple-300 mt-4 mb-2;
 }
 
 .markdown-content h2 {
-  @apply text-xl font-bold text-purple-300 mt-3 mb-2;
+  @apply text-xl font-bold text-purple-600 dark:text-purple-300 mt-3 mb-2;
 }
 
 .markdown-content h3 {
-  @apply text-lg font-semibold text-purple-300 mt-2 mb-1;
+  @apply text-lg font-semibold text-purple-600 dark:text-purple-300 mt-2 mb-1;
 }
 
 .markdown-content p {
@@ -56,31 +91,31 @@
 }
 
 .markdown-content code {
-  @apply bg-gray-900/70 text-pink-400 px-1.5 py-0.5 rounded text-sm font-mono;
+  @apply bg-gray-200/70 dark:bg-gray-900/70 text-pink-600 dark:text-pink-400 px-1.5 py-0.5 rounded text-sm font-mono;
 }
 
 .markdown-content pre {
-  @apply bg-gray-900/70 rounded-lg p-4 mb-3 overflow-x-auto border border-purple-500/20;
+  @apply bg-gray-100 dark:bg-gray-900/70 rounded-lg p-4 mb-3 overflow-x-auto border border-gray-200 dark:border-purple-500/20;
 }
 
 .markdown-content pre code {
-  @apply bg-transparent text-gray-200 p-0;
+  @apply bg-transparent text-gray-800 dark:text-gray-200 p-0;
 }
 
 .markdown-content blockquote {
-  @apply border-l-4 border-purple-500/50 pl-4 italic text-gray-400 mb-3;
+  @apply border-l-4 border-purple-500/50 pl-4 italic text-gray-500 dark:text-gray-400 mb-3;
 }
 
 .markdown-content a {
-  @apply text-purple-400 hover:text-purple-300 underline;
+  @apply text-purple-600 dark:text-purple-400 hover:text-purple-500 dark:hover:text-purple-300 underline;
 }
 
 .markdown-content strong {
-  @apply font-bold text-purple-300;
+  @apply font-bold text-purple-600 dark:text-purple-300;
 }
 
 .markdown-content em {
-  @apply italic text-gray-300;
+  @apply italic text-gray-600 dark:text-gray-300;
 }
 
 .markdown-content hr {
@@ -92,11 +127,11 @@
 }
 
 .markdown-content th {
-  @apply bg-purple-900/20 border border-purple-500/30 px-3 py-2 text-left font-semibold;
+  @apply bg-purple-100 dark:bg-purple-900/20 border border-purple-300 dark:border-purple-500/30 px-3 py-2 text-left font-semibold;
 }
 
 .markdown-content td {
-  @apply border border-purple-500/20 px-3 py-2;
+  @apply border border-purple-200 dark:border-purple-500/20 px-3 py-2;
 }
 
 @keyframes spin-slow {
@@ -125,4 +160,167 @@
 
 .animate-pulse-red {
   animation: pulse-red 1.5s ease-in-out infinite;
+}
+
+/* ReactFlow custom styles */
+.react-flow__node {
+  @apply transition-all duration-200;
+}
+
+.react-flow__edge-path {
+  @apply stroke-2;
+}
+
+.react-flow__background {
+  @apply bg-gray-100 dark:bg-gray-900;
+}
+
+.react-flow__controls {
+  @apply bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden;
+}
+
+.react-flow__controls button {
+  @apply bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-200;
+}
+
+.react-flow__minimap {
+  @apply bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg;
+}
+
+/* Animated gradient border */
+@keyframes gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.animated-border {
+  background: linear-gradient(90deg, #a855f7, #ec4899, #a855f7);
+  background-size: 200% 200%;
+  animation: gradient-shift 3s ease infinite;
+}
+
+/* Glassmorphism effects */
+.glass {
+  @apply bg-white/40 dark:bg-gray-900/40 backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50;
+}
+
+.glass-strong {
+  @apply bg-white/60 dark:bg-gray-900/60 backdrop-blur-2xl border border-gray-200/50 dark:border-gray-700/50;
+}
+
+/* Glow effects */
+.glow-purple {
+  box-shadow: 0 0 20px rgba(168, 85, 247, 0.3),
+              0 0 40px rgba(168, 85, 247, 0.2),
+              0 0 60px rgba(168, 85, 247, 0.1);
+}
+
+.glow-green {
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.3),
+              0 0 40px rgba(34, 197, 94, 0.2);
+}
+
+.glow-blue {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3),
+              0 0 40px rgba(59, 130, 246, 0.2);
+}
+
+/* Smooth text appearance */
+@keyframes text-shimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.shimmer-text {
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255,255,255,0.3) 50%, 
+    transparent 100%);
+  background-size: 200% auto;
+  animation: text-shimmer 3s linear infinite;
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* Message bubble animations */
+@keyframes message-appear {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.message-enter {
+  animation: message-appear 0.3s ease-out forwards;
+}
+
+/* Typing indicator */
+@keyframes typing-dot {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.typing-dot {
+  animation: typing-dot 1.4s ease-in-out infinite;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* Agent status pulse */
+@keyframes status-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.5);
+    opacity: 0.5;
+  }
+}
+
+.status-pulse {
+  animation: status-pulse 2s ease-in-out infinite;
+}
+
+/* Sidebar transition */
+.sidebar-enter {
+  transform: translateX(-100%);
+}
+
+.sidebar-enter-active {
+  transform: translateX(0);
+  transition: transform 300ms ease-out;
+}
+
+.sidebar-exit {
+  transform: translateX(0);
+}
+
+.sidebar-exit-active {
+  transform: translateX(-100%);
+  transition: transform 300ms ease-in;
 }

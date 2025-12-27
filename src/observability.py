@@ -3,12 +3,18 @@
 import logging
 from typing import Optional, Any
 
-import phoenix as px
-from openinference.instrumentation.langchain import LangChainInstrumentor
-from opentelemetry import trace as trace_api
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+# Make phoenix imports optional - not everyone needs observability
+try:
+    import phoenix as px
+    from openinference.instrumentation.langchain import LangChainInstrumentor
+    from opentelemetry import trace as trace_api
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    PHOENIX_AVAILABLE = True
+except ImportError:
+    PHOENIX_AVAILABLE = False
+    px = None
 
 from .config import Config
 
@@ -34,6 +40,11 @@ class ObservabilityManager:
         Returns:
             True if setup was successful, False otherwise.
         """
+        if not PHOENIX_AVAILABLE:
+            logger.warning("Phoenix not installed. Observability disabled.")
+            logger.warning("Install with: pip install arize-phoenix openinference-instrumentation-langchain")
+            return False
+            
         try:
             # Launch Phoenix app
             logger.info("Starting Phoenix observability...")

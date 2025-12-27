@@ -1,0 +1,12 @@
+# Environment files
+.env
+
+# Shared workspace
+shared-workspace/
+
+# Docker volumes
+volumes/
+
+# Logs
+*.log
+logs/

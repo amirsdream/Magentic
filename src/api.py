@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 import json
 
@@ -13,12 +13,17 @@ from sqlalchemy.orm import Session
 
 from .config import Config
 from .tools import ToolManager
-from .meta_agent_system import MetaAgentSystem
-from .langgraph_executor import LangGraphExecutor
+from .agents import MetaAgentSystem
+from .agents.token_tracker import reset_tracker, get_tracker
+from .langgraph_runner import LangGraphExecutor
 from .database import (
     get_db, get_or_create_user, save_conversation, get_user_conversations, 
-    update_user_activity, UserProfile, create_user, authenticate_user
+    update_user_activity, UserProfile, create_user, authenticate_user,
+    create_chat_session, get_chat_session, get_user_chat_sessions,
+    update_chat_session_title, delete_chat_session, add_chat_message, get_chat_messages
 )
+from .services.rag import RAGService
+from .services.mcp_client import MCPClient
 
 logger = logging.getLogger(__name__)
 
@@ -79,13 +84,50 @@ async def startup_event():
     if not is_valid:
         raise RuntimeError(f"Invalid configuration: {error_msg}")
     
-    # Initialize tools
-    tool_manager = ToolManager()
-    tools = tool_manager.initialize_tools()
+    # Initialize RAG service (optional)
+    rag_service = None
+    if config.enable_rag:
+        try:
+            rag_service = RAGService(
+                persist_directory=config.rag_persist_directory,
+                vector_store=config.rag_vector_store,
+                qdrant_mode=config.rag_qdrant_mode,
+                qdrant_url=config.rag_qdrant_url,
+                qdrant_collection=config.rag_qdrant_collection,
+                chunk_size=config.rag_chunk_size,
+                chunk_overlap=config.rag_chunk_overlap,
+                embedding_provider=config.rag_embedding_provider,
+                embedding_model=config.rag_embedding_model,
+                ollama_base_url=config.ollama_base_url
+            )
+            logger.info("✓ RAG service initialized")
+        except Exception as e:
+            logger.warning(f"RAG service initialization failed: {e}")
+    
+    # Initialize MCP client (optional)
+    mcp_client = None
+    if config.enable_mcp:
+        try:
+            mcp_client = MCPClient(gateway_url=config.mcp_gateway_url)
+            health = await mcp_client.health_check()
+            if health.get("status") == "healthy":
+                healthy_servers = health.get("healthy_servers", 0)
+                total_servers = health.get("total_servers", 0)
+                logger.info(f"✓ MCP Gateway ready: {healthy_servers}/{total_servers} servers healthy")
+            else:
+                logger.warning("MCP Gateway health check failed")
+                mcp_client = None
+        except Exception as e:
+            logger.warning(f"MCP client initialization failed: {e}")
+            mcp_client = None
+    
+    # Initialize tools with RAG and MCP support
+    tool_manager = ToolManager(rag_service=rag_service, mcp_client=mcp_client)
+    tools = await tool_manager.initialize_tools()
     logger.info(f"✓ Loaded {len(tools)} tools")
     
-    # Initialize meta-agent system
-    meta_system = MetaAgentSystem(config, tools)
+    # Initialize meta-agent system with tool manager for role-specific MCP tools
+    meta_system = MetaAgentSystem(config, tools, tool_manager=tool_manager)
     logger.info("✓ Meta-agent system initialized")
     
     # Initialize executor
@@ -228,6 +270,137 @@ async def get_history(username: str, limit: int = 50, db: Session = Depends(get_
     }
 
 
+# ============== Chat Session Endpoints ==============
+
+class CreateChatRequest(BaseModel):
+    """Create chat session request."""
+    username: str
+    title: str = "New Chat"
+
+
+class UpdateChatTitleRequest(BaseModel):
+    """Update chat title request."""
+    title: str
+
+
+class AddMessageRequest(BaseModel):
+    """Add message to chat request."""
+    role: str  # 'user' or 'assistant'
+    content: str
+    execution_data: Optional[dict] = None
+
+
+@app.post("/chats")
+async def create_chat(request: CreateChatRequest, db: Session = Depends(get_db)):
+    """Create a new chat session."""
+    user = get_or_create_user(db, request.username)
+    session_id = f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{user.id}"
+    
+    session = create_chat_session(db, user.id, session_id, request.title)
+    
+    return {
+        "success": True,
+        "chat": {
+            "id": session.session_id,
+            "title": session.title,
+            "createdAt": session.created_at.isoformat(),
+            "updatedAt": session.updated_at.isoformat(),
+            "messages": []
+        }
+    }
+
+
+@app.get("/chats/{username}")
+async def get_user_chats(username: str, limit: int = 50, db: Session = Depends(get_db)):
+    """Get all chat sessions for a user."""
+    user = get_or_create_user(db, username)
+    sessions = get_user_chat_sessions(db, user.id, limit)
+    
+    return {
+        "username": username,
+        "total": len(sessions),
+        "chats": [
+            {
+                "id": s.session_id,
+                "title": s.title,
+                "createdAt": s.created_at.isoformat(),
+                "updatedAt": s.updated_at.isoformat(),
+                "messageCount": len(s.messages)
+            }
+            for s in sessions
+        ]
+    }
+
+
+@app.get("/chats/{username}/{session_id}")
+async def get_chat(username: str, session_id: str, db: Session = Depends(get_db)):
+    """Get a specific chat session with all messages."""
+    session = get_chat_session(db, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    messages = get_chat_messages(db, session_id)
+    
+    return {
+        "id": session.session_id,
+        "title": session.title,
+        "createdAt": session.created_at.isoformat(),
+        "updatedAt": session.updated_at.isoformat(),
+        "messages": [
+            {
+                "id": str(m.id),
+                "role": m.role,
+                "content": m.content,
+                "timestamp": m.timestamp.isoformat(),
+                "executionData": m.execution_data
+            }
+            for m in messages
+        ]
+    }
+
+
+@app.patch("/chats/{session_id}")
+async def update_chat(session_id: str, request: UpdateChatTitleRequest, db: Session = Depends(get_db)):
+    """Update chat session title."""
+    session = update_chat_session_title(db, session_id, request.title)
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    return {"success": True, "title": session.title}
+
+
+@app.delete("/chats/{session_id}")
+async def delete_chat(session_id: str, db: Session = Depends(get_db)):
+    """Delete a chat session."""
+    success = delete_chat_session(db, session_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    return {"success": True}
+
+
+@app.post("/chats/{session_id}/messages")
+async def add_message(session_id: str, request: AddMessageRequest, db: Session = Depends(get_db)):
+    """Add a message to a chat session."""
+    message = add_chat_message(db, session_id, request.role, request.content, request.execution_data)
+    if not message:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    # Get updated session for new title
+    session = get_chat_session(db, session_id)
+    
+    return {
+        "success": True,
+        "message": {
+            "id": str(message.id),
+            "role": message.role,
+            "content": message.content,
+            "timestamp": message.timestamp.isoformat()
+        },
+        "chatTitle": session.title if session else "New Chat"
+    }
+
+
 @app.post("/query", response_model=QueryResponse)
 async def process_query(request: QueryRequest):
     """Process a query (non-streaming endpoint)."""
@@ -299,6 +472,9 @@ async def websocket_endpoint(websocket: WebSocket):
 async def process_query_with_updates(websocket: WebSocket, query: str, username: str = "guest"):
     """Process query and send real-time updates via WebSocket."""
     try:
+        # Reset token tracker for this execution
+        reset_tracker()
+        
         # Send planning stage
         await websocket.send_json({
             "type": "stage",
@@ -324,20 +500,26 @@ async def process_query_with_updates(websocket: WebSocket, query: str, username:
             "total_layers": len(layers)
         }
         
+        # Build agents data with agent_ids
+        agents_data = [
+            {
+                "agent_id": f"{agent.get('role')}_{idx}",
+                "role": agent.get("role"),
+                "task": agent.get("task"),
+                "layer": agent_to_layer.get(idx, 0)
+            }
+            for idx, agent in enumerate(plan.agents)
+        ]
+        
+        # Log agent IDs being sent
+        logger.info(f"Plan agent IDs: {[a['agent_id'] for a in agents_data]}")
+        
         # Send plan
         await websocket.send_json({
             "type": "plan",
             "data": {
                 "description": plan.description,
-                "agents": [
-                    {
-                        "agent_id": f"{agent.get('role')}_{idx}",
-                        "role": agent.get("role"),
-                        "task": agent.get("task"),
-                        "layer": agent_to_layer.get(idx, 0)
-                    }
-                    for idx, agent in enumerate(plan.agents)
-                ],
+                "agents": agents_data,
                 "total_agents": len(plan.agents),
                 "total_layers": len(layers)
             }
@@ -350,8 +532,8 @@ async def process_query_with_updates(websocket: WebSocket, query: str, username:
             "message": f"Executing {len(plan.agents)} agents..."
         })
         
-        # Execute with custom callback for progress
-        result = await execute_with_progress(websocket, query)
+        # Execute with custom callback for progress - pass the SAME plan
+        result = await execute_with_progress(websocket, query, plan)
         
         # Wait to ensure all agent_complete events are sent before the final complete event
         await asyncio.sleep(0.2)
@@ -377,13 +559,17 @@ async def process_query_with_updates(websocket: WebSocket, query: str, username:
         except Exception as e:
             logger.error(f"Failed to save conversation: {e}")
         
-        # Send completion
+        # Send completion with token usage
+        tracker = get_tracker()
+        token_summary = tracker.get_summary()
+        
         await websocket.send_json({
             "type": "complete",
             "data": {
                 "output": final_output,
                 "session_id": session_id,
-                "execution_time": result.get("execution_time", 0)
+                "execution_time": result.get("execution_time", 0),
+                "token_usage": token_summary
             }
         })
         
@@ -395,8 +581,14 @@ async def process_query_with_updates(websocket: WebSocket, query: str, username:
         })
 
 
-async def execute_with_progress(websocket: WebSocket, query: str) -> Dict[str, Any]:
-    """Execute query and send progress updates."""
+async def execute_with_progress(websocket: WebSocket, query: str, plan) -> Dict[str, Any]:
+    """Execute query and send progress updates.
+    
+    Args:
+        websocket: WebSocket connection for sending updates
+        query: User query to process
+        plan: ExecutionPlan to use (same plan sent to frontend)
+    """
     
     # Monkey-patch the meta_system to send updates
     original_execute = meta_system.execute_agent_for_langgraph
@@ -463,9 +655,13 @@ async def execute_with_progress(websocket: WebSocket, query: str) -> Dict[str, A
         
         logger.info(f"Agent {agent_id} output: {output_str[:500]}")
         
-        # Send agent complete with full output
+        # Send agent complete with full output and token usage
         logger.info(f"Sending agent_complete event for {agent_id} with {len(tool_calls)} tool calls")
         try:
+            # Get token usage for this agent
+            tracker = get_tracker()
+            agent_tokens = tracker.get_agent_summary(agent_id)
+            
             await websocket.send_json({
                 "type": "agent_complete",
                 "data": {
@@ -474,7 +670,8 @@ async def execute_with_progress(websocket: WebSocket, query: str) -> Dict[str, A
                     "input": context[:config.ui_display_limit] if context else "(No previous agent outputs)",
                     "output": output_str[:config.ui_display_limit],
                     "output_length": len(output_str),
-                    "tool_calls": tool_calls
+                    "tool_calls": tool_calls,
+                    "token_usage": agent_tokens
                 }
             })
             logger.info(f"✓ Successfully sent agent_complete for {agent_id}")
@@ -488,7 +685,8 @@ async def execute_with_progress(websocket: WebSocket, query: str) -> Dict[str, A
     meta_system.execute_agent_for_langgraph = execute_with_notification
     
     try:
-        result = await executor.execute_query(query)
+        # Pass the SAME plan to executor to ensure consistent agent IDs
+        result = await executor.execute_query(query, plan=plan)
         return result
     finally:
         # Restore original method

@@ -49,6 +49,25 @@ class Config:
         
         # UI Display settings
         self.ui_display_limit: int = int(os.getenv("UI_DISPLAY_LIMIT", "200"))
+        
+        # RAG settings
+        self.enable_rag: bool = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
+        self.rag_vector_store: str = os.getenv("RAG_VECTOR_STORE", "qdrant")
+        self.rag_qdrant_mode: str = os.getenv("RAG_QDRANT_MODE", "memory")
+        self.rag_qdrant_url: Optional[str] = os.getenv("RAG_QDRANT_URL")
+        self.rag_qdrant_collection: str = os.getenv("RAG_QDRANT_COLLECTION", "knowledge_base")
+        self.rag_persist_directory: str = os.getenv("RAG_PERSIST_DIRECTORY", "./rag_data")
+        self.rag_chunk_size: int = int(os.getenv("RAG_CHUNK_SIZE", "1000"))
+        self.rag_chunk_overlap: int = int(os.getenv("RAG_CHUNK_OVERLAP", "200"))
+        self.rag_top_k: int = int(os.getenv("RAG_TOP_K", "4"))
+        # Use same provider as LLM by default, or override
+        self.rag_embedding_provider: str = os.getenv("RAG_EMBEDDING_PROVIDER", self.llm_provider)
+        # Auto-select model based on provider if not specified
+        self.rag_embedding_model: Optional[str] = os.getenv("RAG_EMBEDDING_MODEL")
+        
+        # MCP settings
+        self.enable_mcp: bool = os.getenv("ENABLE_MCP", "false").lower() in ("true", "1", "yes")
+        self.mcp_gateway_url: str = os.getenv("MCP_GATEWAY_URL", "http://localhost:9000")
 
     def validate(self) -> tuple[bool, Optional[str]]:
         """Validate configuration values.

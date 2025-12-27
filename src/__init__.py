@@ -1,29 +1,61 @@
-"""Magentic - Magnetic Agent Networks Package."""
+"""
+Magentic - Magnetic Agent Networks
+
+A dynamic meta-agent system for intelligent task orchestration using LangGraph.
+"""
 
 __version__ = "2.0.0"
 __author__ = "Magentic Team"
 __description__ = "Dynamic meta-agent system with LangGraph infrastructure"
 
-# Core exports
+# Core configuration
 from .config import Config
-from .meta_agent_system import MetaAgentSystem
-from .meta_coordinator import MetaCoordinator, ExecutionPlan
-from .langgraph_executor import LangGraphExecutor, MagenticState
-from .role_library import RoleLibrary
-from .tools import ToolManager
+from .role_library import RoleLibrary, AgentRole as Role
 from .observability import ObservabilityManager
-from .visualization import ExecutionVisualizer
+
+# Agent system (new modular structure)
+from .agents import MetaAgentSystem, create_llm
+
+# Coordinator
+from .coordinator import MetaCoordinator, ExecutionPlan
+
+# Execution engine
+from .execution import MagenticGraphBuilder, MagenticState
+
+# Tools
+from .tools import ToolManager
+
+# Services
+from .services import MCPClient, RAGService
+
+# UI
+from .ui import ExecutionVisualizer
+
+# LangGraph runner
+from .langgraph_runner import LangGraphExecutor
 
 __all__ = [
+    # Config
     "Config",
+    "RoleLibrary",
+    "Role",
+    "ObservabilityManager",
+    # Agents
     "MetaAgentSystem",
+    "create_llm",
+    # Coordinator
     "MetaCoordinator",
     "ExecutionPlan",
-    "LangGraphExecutor",
+    # Execution
+    "MagenticGraphBuilder",
     "MagenticState",
-    "RoleLibrary",
+    "LangGraphExecutor",
+    # Tools
     "ToolManager",
-    "ObservabilityManager",
+    # Services
+    "MCPClient",
+    "RAGService",
+    # UI
     "ExecutionVisualizer",
 ]
 

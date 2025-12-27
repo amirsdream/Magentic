@@ -168,6 +168,15 @@ class MetaAgentSystem:
             logger.info(f"🔀 LAYER {layer_idx + 1}/{len(execution_layers)}: Executing {len(agent_indices)} agents in parallel")
             logger.info(f"{'='*60}")
             
+            # Show parallel agents starting if multiple agents
+            if len(agent_indices) > 1:
+                layer_agent_specs = [plan.agents[i] for i in agent_indices]
+                self.visualizer.display_parallel_agents_start(
+                    layer_agent_specs, 
+                    layer_idx + 1, 
+                    len(execution_layers)
+                )
+            
             # Execute all agents in this layer in parallel
             if len(agent_indices) == 1:
                 # Single agent - no parallelization needed
@@ -184,6 +193,11 @@ class MetaAgentSystem:
                     layer_idx=layer_idx, total_layers=len(execution_layers)
                 ))
                 outputs.update(layer_outputs)
+            
+            # Display layer completion
+            if len(agent_indices) > 1:
+                logger.info(f"✅ Layer {layer_idx + 1} complete: {len(agent_indices)} agents finished")
+                self.visualizer.console.print(f"\n[bold green]✅ Layer {layer_idx + 1}/{len(execution_layers)} complete: {len(agent_indices)} parallel agents finished[/bold green]\n")
         
         # Final answer is the last output in execution order
         final_answer = outputs[len(plan.agents) - 1] if outputs else "No output generated"
@@ -510,49 +524,46 @@ class MetaAgentSystem:
         # Parse context to extract previous outputs
         previous_outputs = []
         if context:
-            logger.info(f"Agent {agent_id} received context: {context[:500]}...")
-            logger.info(f"Context raw repr: {repr(context[:200])}")
+            logger.info(f"Agent {agent_id} received context ({len(context)} chars)")
+            logger.debug(f"Context raw repr: {repr(context[:200])}")
             
             # Context format: "From agent_id:\noutput\n\nFrom agent_id2:\noutput2"
-            # Split by double newline to separate different agents
-            parts = context.split("\n\n")
-            logger.info(f"Context split into {len(parts)} parts")
+            # Use regex to split on "From <agent_id>:" pattern to handle multi-paragraph outputs
+            import re
+            # Pattern matches "From <word>_<number>:" at the start of a line
+            agent_pattern = re.compile(r'(?:^|\n\n)From ([a-zA-Z_]+_\d+):\n', re.MULTILINE)
             
-            for i, part in enumerate(parts):
-                part = part.strip()
-                if not part:
-                    logger.debug(f"Part {i} is empty, skipping")
-                    continue
-                
-                logger.info(f"Processing part {i}: {part[:100]}...")
+            # Find all agent headers and their positions
+            matches = list(agent_pattern.finditer(context))
+            logger.info(f"Found {len(matches)} agent outputs in context")
+            
+            if matches:
+                for i, match in enumerate(matches):
+                    agent_name = match.group(1)
+                    start_pos = match.end()  # Position after the header
                     
-                if part.startswith("From "):
-                    # Try multiple parsing strategies
-                    # Strategy 1: Split on ":\n" (preferred format)
-                    if ":\n" in part:
-                        header, output = part.split(":\n", 1)
-                        if output:
-                            previous_outputs.append(output)
-                            logger.info(f"Extracted output from {header} (strategy 1): {output[:200]}...")
-                        else:
-                            logger.warning(f"Part has 'From' header but empty output: {part[:100]}")
-                    # Strategy 2: Split on ":" and check if there's content after
-                    elif ":" in part:
-                        header, rest = part.split(":", 1)
-                        rest = rest.strip()
-                        if rest:
-                            previous_outputs.append(rest)
-                            logger.info(f"Extracted output from {header} (strategy 2): {rest[:200]}...")
-                        else:
-                            logger.warning(f"Part has 'From' and ':' but no content after: {part[:100]}")
+                    # End position is either start of next match or end of string
+                    if i + 1 < len(matches):
+                        end_pos = matches[i + 1].start()
                     else:
-                        logger.warning(f"Part starts with 'From' but has no colon: {part[:100]}")
-                else:
-                    # Might be continuation or different format - add as-is if non-empty
-                    if part and not part.startswith("Original question:") and not part.startswith("==="):
-                        logger.info(f"Adding non-standard part as context: {part[:100]}...")
-                        previous_outputs.append(part)
+                        end_pos = len(context)
+                    
+                    output = context[start_pos:end_pos].strip()
+                    if output:
+                        previous_outputs.append(output)
+                        logger.info(f"Extracted output from {agent_name} ({len(output)} chars): {output[:200]}...")
+                    else:
+                        logger.warning(f"Agent {agent_name} has empty output")
+            else:
+                # Fallback: no pattern found, treat entire context as single input
+                # (This handles edge cases or different formats)
+                logger.warning(f"No 'From agent_id:' pattern found, using raw context")
+                if context.strip() and not context.startswith("Original question:"):
+                    previous_outputs.append(context.strip())
+                    
             logger.info(f"Total previous outputs extracted: {len(previous_outputs)}")
+        else:
+            logger.info(f"Agent {agent_id} has no context (first agent)")
         else:
             logger.info(f"Agent {agent_id} has no context (first agent)")
         
@@ -596,8 +607,10 @@ class MetaAgentSystem:
             context_parts.append("\n=== Previous Agent Conversation Steps ===")
             for i, step in enumerate(conversation_history[-3:], 1):  # Last 3 steps for context
                 context_parts.append(f"\nStep {i} - {step.get('role', 'unknown')} ({step.get('agent_id', '')}):") 
-                context_parts.append(f"  Task: {step.get('task', '')[:100]}")
-                context_parts.append(f"  Output: {step.get('output', '')[:200]}...")
+                context_parts.append(f"  Task: {step.get('task', '')[:200]}")
+                step_output = step.get('output', '')
+                output_preview = step_output[:500] + "..." if len(step_output) > 500 else step_output
+                context_parts.append(f"  Output: {output_preview}")
         
         # Add user conversation history if available (from meta_system.conversation_history)
         if self.conversation_history:
@@ -613,10 +626,10 @@ class MetaAgentSystem:
             logger.info(f"Agent has {len(previous_outputs)} previous outputs to incorporate")
             context_parts.append("\n=== Outputs from Previous Agents ===")
             for i, output in enumerate(previous_outputs, 1):
-                # Truncate if very long
-                output_display = output[:500] + "..." if len(output) > 500 else output
+                # Truncate only if extremely long (preserve more context for multi-agent flows)
+                output_display = output[:2000] + "... [truncated]" if len(output) > 2000 else output
                 context_parts.append(f"\nAgent {i} output:\n{output_display}")
-                logger.info(f"Adding previous output {i}: {output[:200]}...")
+                logger.info(f"Adding previous output {i} ({len(output)} chars): {output[:300]}...")
         else:
             logger.info("Agent is the first agent - no previous outputs")
             context_parts.append("\n=== You are the first agent ===")

@@ -1,0 +1,306 @@
+# MCP Docker Infrastructure
+# Version: 2.0.0
+# Enhanced with additional services, health checks, and resource limits
+
+services:
+  # ============================================
+  # MCP Gateway - Central router for all MCP servers
+  # ============================================
+  mcp-gateway:
+    build:
+      context: ./mcp-gateway
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${MCP_VERSION:-2.0.0}
+        BUILD_DATE: ${BUILD_DATE:-}
+    container_name: mcp-gateway
+    hostname: mcp-gateway
+    ports:
+      - "9000:8000"
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - HEALTH_CHECK_INTERVAL=${HEALTH_CHECK_INTERVAL:-60}
+      - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-30}
+      - MAX_RETRIES=${MAX_RETRIES:-3}
+      - CIRCUIT_BREAKER_THRESHOLD=${CIRCUIT_BREAKER_THRESHOLD:-5}
+      - CIRCUIT_BREAKER_TIMEOUT=${CIRCUIT_BREAKER_TIMEOUT:-60}
+      - ENABLE_METRICS=${ENABLE_METRICS:-true}
+      - CACHE_TTL=${CACHE_TTL:-300}
+      # Service URLs
+      - MCP_FILESYSTEM_URL=http://mcp-filesystem:8000
+      - MCP_WEBSEARCH_URL=http://mcp-websearch:8000
+      - MCP_GITHUB_URL=http://mcp-github:8000
+      - MCP_PYTHON_URL=http://mcp-python:8000
+      - MCP_DATABASE_URL=http://mcp-database:8000
+      - MCP_MEMORY_URL=http://mcp-memory:8000
+    depends_on:
+      mcp-filesystem:
+        condition: service_healthy
+      mcp-websearch:
+        condition: service_healthy
+      mcp-github:
+        condition: service_healthy
+      mcp-python:
+        condition: service_healthy
+      mcp-database:
+        condition: service_healthy
+      mcp-memory:
+        condition: service_healthy
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    labels:
+      - "com.mcp.service=gateway"
+      - "com.mcp.version=${MCP_VERSION:-2.0.0}"
+
+  # ============================================
+  # MCP Server: Filesystem Operations
+  # ============================================
+  mcp-filesystem:
+    build:
+      context: ./mcp-servers/filesystem
+      dockerfile: Dockerfile
+    container_name: mcp-filesystem
+    hostname: mcp-filesystem
+    volumes:
+      - ./shared-workspace:/workspace:rw
+    environment:
+      - WORKSPACE_DIR=/workspace
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-10485760}
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+    labels:
+      - "com.mcp.service=filesystem"
+
+  # ============================================
+  # MCP Server: Web Search (via SearXNG)
+  # ============================================
+  mcp-websearch:
+    build:
+      context: ./mcp-servers/web-search
+      dockerfile: Dockerfile
+    container_name: mcp-websearch
+    hostname: mcp-websearch
+    environment:
+      - MAX_RESULTS=${SEARCH_MAX_RESULTS:-10}
+      - TIMEOUT=${SEARCH_TIMEOUT:-30}
+      - SEARXNG_URL=http://searxng:8080
+    depends_on:
+      searxng:
+        condition: service_healthy
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+    labels:
+      - "com.mcp.service=websearch"
+
+  # ============================================
+  # SearXNG - Meta Search Engine (aggregates 70+ engines)
+  # ============================================
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: searxng
+    hostname: searxng
+    volumes:
+      - ./searxng:/etc/searxng:z
+    environment:
+      - SEARXNG_BASE_URL=http://searxng:8080/
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-ultrasecretkey123changeme}
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    labels:
+      - "com.mcp.service=searxng"
+
+  # ============================================
+  # MCP Server: GitHub Operations
+  # ============================================
+  mcp-github:
+    build:
+      context: ./mcp-servers/github
+      dockerfile: Dockerfile
+    container_name: mcp-github
+    hostname: mcp-github
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+    labels:
+      - "com.mcp.service=github"
+
+  # ============================================
+  # MCP Server: Python Code Execution
+  # ============================================
+  mcp-python:
+    build:
+      context: ./mcp-servers/python-exec
+      dockerfile: Dockerfile
+    container_name: mcp-python
+    hostname: mcp-python
+    environment:
+      - MAX_EXECUTION_TIME=${MAX_EXECUTION_TIME:-30}
+      - MAX_MEMORY_MB=${MAX_MEMORY_MB:-256}
+      - MAX_OUTPUT_SIZE=${MAX_OUTPUT_SIZE:-65536}
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    labels:
+      - "com.mcp.service=python"
+
+  # ============================================
+  # MCP Server: Database Operations (SQLite)
+  # ============================================
+  mcp-database:
+    build:
+      context: ./mcp-servers/database
+      dockerfile: Dockerfile
+    container_name: mcp-database
+    hostname: mcp-database
+    volumes:
+      - ./data:/data:rw
+    environment:
+      - DB_DIR=/data
+      - MAX_RESULTS=${DB_MAX_RESULTS:-1000}
+      - ALLOW_WRITE_OPS=${ALLOW_WRITE_OPS:-true}
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+    labels:
+      - "com.mcp.service=database"
+
+  # ============================================
+  # MCP Server: In-Memory Key-Value Store
+  # ============================================
+  mcp-memory:
+    build:
+      context: ./mcp-servers/memory
+      dockerfile: Dockerfile
+    container_name: mcp-memory
+    hostname: mcp-memory
+    environment:
+      - DEFAULT_TTL=${DEFAULT_TTL:-3600}
+      - MAX_KEYS_PER_NAMESPACE=${MAX_KEYS_PER_NAMESPACE:-10000}
+      - MAX_VALUE_SIZE=${MAX_VALUE_SIZE:-1048576}
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 512M
+    labels:
+      - "com.mcp.service=memory"
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  mcp-network:
+    driver: bridge
+    name: mcp-network
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# ============================================
+# Volumes
+# ============================================
+volumes:
+  shared-workspace:
+    driver: local
+  mcp-data:
+    driver: local

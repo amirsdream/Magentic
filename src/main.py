@@ -8,7 +8,6 @@ passing while preserving the dynamic meta-agent behavior.
 import asyncio
 import logging
 import sys
-from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
@@ -16,9 +15,11 @@ from rich.markdown import Markdown
 
 from .config import Config
 from .tools import ToolManager
-from .meta_agent_system import MetaAgentSystem
-from .langgraph_executor import LangGraphExecutor
+from .agents import MetaAgentSystem
+from .langgraph_runner import LangGraphExecutor
 from .observability import ObservabilityManager
+from .services.rag import RAGService
+from .services.mcp_client import MCPClient
 
 # Setup logging
 logging.basicConfig(
@@ -83,14 +84,69 @@ async def main_async() -> int:
         logger.info("ℹ️  Observability disabled (ENABLE_OBSERVABILITY=false)")
         console.print("[dim]ℹ️  Observability disabled[/dim]")
     
-    # Initialize tools
-    tool_manager = ToolManager()
-    tools = tool_manager.initialize_tools()
+    # Initialize RAG service (optional)
+    rag_service = None
+    if config.enable_rag:
+        try:
+            console.print("[dim]📚 Initializing RAG service...[/dim]", end="")
+            rag_service = RAGService(
+                persist_directory=config.rag_persist_directory,
+                vector_store=config.rag_vector_store,
+                qdrant_mode=config.rag_qdrant_mode,
+                qdrant_url=config.rag_qdrant_url,
+                qdrant_collection=config.rag_qdrant_collection,
+                chunk_size=config.rag_chunk_size,
+                chunk_overlap=config.rag_chunk_overlap,
+                embedding_provider=config.rag_embedding_provider,
+                embedding_model=config.rag_embedding_model,
+                ollama_base_url=config.ollama_base_url
+            )
+            stats = rag_service.get_stats()
+            console.print(f"\r[green]✓ RAG service ready ({stats.get('vector_store', 'unknown')}): {stats.get('document_count', 0)} docs[/green]")
+            logger.info(f"✓ RAG service initialized: {stats}")
+        except Exception as e:
+            console.print(f"\r[yellow]⚠️  RAG service failed: {e}[/yellow]")
+            logger.warning(f"RAG service initialization failed: {e}")
+    else:
+        console.print("[dim]ℹ️  RAG service disabled[/dim]")
+    
+    # Initialize MCP client (optional)
+    mcp_client = None
+    if config.enable_mcp:
+        try:
+            console.print("[dim]🔌 Initializing MCP client...[/dim]", end="")
+            mcp_client = MCPClient(gateway_url=config.mcp_gateway_url)
+            health = await mcp_client.health_check()
+            if health.get("status") == "healthy":
+                healthy_servers = health.get("healthy_servers", 0)
+                total_servers = health.get("total_servers", 0)
+                console.print(f"\r[green]✓ MCP Gateway ready: {healthy_servers}/{total_servers} servers healthy[/green]")
+                logger.info(f"✓ MCP client connected to {config.mcp_gateway_url}")
+            else:
+                console.print(f"\r[yellow]⚠️  MCP Gateway unavailable[/yellow]")
+                logger.warning("MCP Gateway health check failed")
+                mcp_client = None
+        except Exception as e:
+            console.print(f"\r[yellow]⚠️  MCP client failed: {e}[/yellow]")
+            logger.warning(f"MCP client initialization failed: {e}")
+            mcp_client = None
+    else:
+        console.print("[dim]ℹ️  MCP client disabled (set ENABLE_MCP=true and start: cd docker && ./start.sh)[/dim]")
+    
+    # Initialize tools with RAG and MCP support
+    tool_manager = ToolManager(rag_service=rag_service, mcp_client=mcp_client)
+    tools = await tool_manager.initialize_tools()
     logger.info(f"✓ Loaded {len(tools)} tools")
     
-    # Initialize meta-agent system
-    meta_system = MetaAgentSystem(config, tools)
+    # Initialize meta-agent system with tool manager for role-specific MCP tools
+    meta_system = MetaAgentSystem(config, tools, tool_manager=tool_manager)
     logger.info("✓ Meta-agent system initialized")
+    
+    # Pre-cache MCP tools for all roles to avoid async/sync issues during execution
+    if mcp_client:
+        console.print("[dim]🔧 Pre-caching role tools...[/dim]", end="")
+        await meta_system.agent_executor.pre_cache_role_tools()
+        console.print("\r[green]✓ Role tools pre-cached[/green]")
     
     # Initialize LangGraph executor
     langgraph_executor = LangGraphExecutor(meta_system)
@@ -171,6 +227,9 @@ async def main_async() -> int:
             
         except KeyboardInterrupt:
             console.print("\n\n[yellow]👋 Goodbye![/yellow]")
+            # Cleanup MCP client
+            if mcp_client:
+                await mcp_client.close()
             return 0
         except Exception as e:
             console.print(f"\n[red]Error: {e}[/red]\n")

@@ -4,6 +4,59 @@
 
 ![Magentic UI](assets/magentic.png)
 
+## 🚀 Quick Start
+
+Get started in 3 easy steps:
+
+```bash
+# 1. Clone and setup
+git clone <your-repo-url>
+cd test_langchain
+chmod +x magentic.sh && ./magentic.sh setup
+
+# 2. Start everything (MCP, API, Frontend)
+./magentic.sh start
+
+# 3. Or run interactive CLI
+./magentic.sh cli
+```
+
+### Management Commands
+
+```bash
+./magentic.sh start       # Start all services (MCP, API, Frontend)
+./magentic.sh stop        # Stop all services
+./magentic.sh status      # Show status of all services
+./magentic.sh cli         # Run interactive CLI mode
+./magentic.sh remove      # Remove all resources and data
+
+# Individual services
+./magentic.sh mcp         # Start MCP Docker services only
+./magentic.sh api         # Start API server only
+./magentic.sh frontend    # Start frontend only
+
+# Database
+./magentic.sh db-init     # Initialize/migrate database
+./magentic.sh db-reset    # Reset database (deletes data)
+
+# Utilities
+./magentic.sh logs mcp    # View MCP logs
+./magentic.sh health      # Check health of all services
+./magentic.sh help        # Show all commands
+```
+
+The setup script will:
+- ✅ Create Python virtual environment
+- ✅ Install all dependencies
+- ✅ Configure your LLM provider (Ollama/OpenAI/Claude)
+- ✅ Set up RAG vector store (Qdrant)
+- ✅ Pull required AI models
+- ✅ Create all necessary directories
+
+For detailed installation instructions, see [INSTALL.md](INSTALL.md).
+
+---
+
 ## Overview
 
 Magentic is an intelligent multi-agent system that dynamically analyzes your queries and creates optimal networks of specialized AI agents to provide comprehensive answers. Unlike traditional chatbots, Magentic automatically scales from simple single-agent responses to complex multi-agent workflows based on query complexity.
@@ -39,7 +92,9 @@ Magentic is an intelligent multi-agent system that dynamically analyzes your que
 
 ### Technical Capabilities
 - 🔍 **Web Search**: DuckDuckGo integration for current information
-- 📊 **Observability**: Phoenix dashboard for LLM tracing and debugging
+- � **RAG (Knowledge Base)**: Retrieve from your own documents using vector search
+- 🔌 **MCP Support**: Connect to Model Context Protocol servers for advanced capabilities
+- �📊 **Observability**: Phoenix dashboard for LLM tracing and debugging
 - 🐛 **Debug Mode**: Optional state visualization for troubleshooting
 - 🎭 **Multi-LLM Support**: Works with Ollama (local), OpenAI, and Claude
 - ⚙️ **Configurable**: Customize output limits, temperature, and more
@@ -73,7 +128,7 @@ Magentic is an intelligent multi-agent system that dynamically analyzes your que
 Run the setup script to install everything automatically:
 
 ```bash
-./setup.sh
+./magentic.sh setup
 ```
 
 This will:
@@ -186,7 +241,7 @@ Try these to see the agent system in action:
 For command-line usage without the web UI:
 
 ```bash
-python app.py
+./magentic.sh cli
 ```
 
 ## Configuration
@@ -223,6 +278,22 @@ DEBUG_STATE=false            # Set to true for state visualization
 UI_DISPLAY_LIMIT=200         # Character limit for output (min: 50)
 ```
 
+**RAG (Knowledge Base):**
+```bash
+ENABLE_RAG=false                    # Enable document retrieval
+RAG_VECTOR_STORE=qdrant             # qdrant (recommended) or chromadb
+RAG_QDRANT_MODE=memory              # memory (embedded) or server
+RAG_QDRANT_COLLECTION=knowledge_base
+RAG_PERSIST_DIRECTORY=./rag_data
+RAG_TOP_K=4                         # Number of documents to retrieve
+```
+
+**MCP (Model Context Protocol):**
+```bash
+ENABLE_MCP=false             # Enable MCP integration
+MCP_SERVER_URL=              # URL of MCP server
+```
+
 ## Database Management
 
 ```bash
@@ -246,13 +317,25 @@ alembic revision --autogenerate -m "Description"
 
 ## Documentation
 
-- [Project Overview](docs/PROJECT_OVERVIEW.md) - Comprehensive project documentation
-- [Architecture Guide](docs/ARCHITECTURE.md) - Detailed system architecture
-- [Layer Barriers](docs/LAYER_BARRIERS.md) - Execution synchronization system
-- [Authentication Guide](docs/AUTHENTICATION.md) - User registration and profiles
-- [Web UI Guide](frontend/README.md) - Frontend documentation
-- [Database Migrations](alembic/README.md) - Alembic migration guide
-- [Changelog](CHANGELOG.md) - Version history and updates
+### 📚 Complete Documentation
+- **[Documentation Hub](docs/README.md)** - Central documentation index with navigation guide
+
+### 🏗️ Architecture & Design
+- **[System Architecture (Mermaid Diagrams)](docs/SYSTEM_ARCHITECTURE.md)** - Comprehensive architecture with interactive diagrams
+- **[Architecture Diagram (SVG)](docs/architecture_diagram.svg)** - Visual system overview
+- **[Architecture Guide](docs/ARCHITECTURE.md)** - Quick architecture reference
+- **[Project Overview](docs/PROJECT_OVERVIEW.md)** - Complete project documentation
+
+### 🔧 Technical Guides
+- **[Vector Store Architecture](docs/VECTOR_STORE_ARCHITECTURE.md)** - Qdrant & ChromaDB setup
+- **[RAG & Embeddings Guide](docs/RAG_EMBEDDINGS.md)** - Knowledge base configuration
+- **[Layer Barriers](docs/LAYER_BARRIERS.md)** - Parallel execution synchronization
+- **[Authentication Guide](docs/AUTHENTICATION.md)** - User registration and security
+
+### 💻 Component Documentation
+- **[Web UI Guide](frontend/README.md)** - Frontend documentation
+- **[Database Migrations](alembic/README.md)** - Alembic migration guide
+- **[Changelog](CHANGELOG.md)** - Version history and updates
 
 ## Phoenix Dashboard (Optional)
 
@@ -262,7 +345,9 @@ For real-time LLM tracing and debugging, Phoenix is automatically available at:
 
 ## Architecture
 
-Magentic uses a sophisticated multi-layer architecture:
+Magentic uses a sophisticated multi-layer architecture. See the **[Complete System Architecture](docs/SYSTEM_ARCHITECTURE.md)** with interactive Mermaid diagrams or view the **[Architecture Diagram SVG](docs/architecture_diagram.svg)** for a visual overview.
+
+### Architecture Layers
 
 1. **Meta-Coordinator**: LLM-based planner that analyzes queries and generates agent topologies
 2. **Agent Network**: Dynamic DAG of specialized agents executing in parallel layers
@@ -270,9 +355,34 @@ Magentic uses a sophisticated multi-layer architecture:
 4. **State Management**: LangGraph-based state with checkpointing and recovery
 5. **Web Interface**: React frontend with WebSocket streaming for real-time updates
 
+### Execution Flow
+
+```
+User Query → Meta-Coordinator (Analyze) → Execution Plan → LangGraph DAG
+  ↓
+Layer 0: [researcher_0, researcher_1] (parallel)
+  ↓
+Layer 1: [analyzer_2] (depends on both researchers)
+  ↓
+Layer 2: [synthesizer_3] (final synthesis)
+  ↓
+WebSocket Stream → React UI
+```
+
+For detailed architecture documentation including:
+- Component interaction diagrams
+- Data flow visualization
+- Agent topology examples
+- WebSocket protocol
+- Deployment architecture
+- Performance optimization
+
+See **[SYSTEM_ARCHITECTURE.md](docs/SYSTEM_ARCHITECTURE.md)**
+
 ## Agent Roles
 
 - **Researcher**: Searches the web for current information
+- **Retriever**: Searches your knowledge base for stored documents (RAG)
 - **Analyzer**: Analyzes data, explains concepts, answers questions
 - **Planner**: Creates step-by-step plans and strategies
 - **Writer**: Writes articles, stories, documentation
