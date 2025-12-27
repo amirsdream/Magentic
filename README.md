@@ -1,5 +1,10 @@
 # Magentic
 
+[![CI](https://github.com/amirsdream/magentic/actions/workflows/ci.yml/badge.svg)](https://github.com/amirsdream/magentic/actions/workflows/ci.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
 **Magnetic Agent Networks** — Dynamic multi-agent AI system with parallel execution.
 
 ## Why Magentic?
@@ -67,9 +72,12 @@ ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
 
 **Optional features:**
 ```bash
-ENABLE_RAG=true          # Enable document retrieval
-ENABLE_MCP=true          # Enable MCP tools (requires Docker)
-DEBUG_STATE=true         # Enable debug visualization
+ENABLE_RAG=true              # Enable document retrieval
+ENABLE_MCP=true              # Enable MCP tools (requires Docker)
+DEBUG_STATE=true             # Enable debug visualization
+AGENT_CONTEXT_LIMIT=4000     # Max chars passed between agent layers (default: 4000)
+AGENT_HISTORY_LIMIT=500      # Max chars for conversation history preview (default: 500)
+UI_DISPLAY_LIMIT=200         # Max chars shown in UI per agent (default: 200)
 ```
 
 ## Agent Roles

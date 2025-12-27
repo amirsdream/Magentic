@@ -8,12 +8,14 @@ from typing import Dict, Any, List, TYPE_CHECKING
 from rich.console import Console
 
 from .state import MagenticState, visualize_state
+from ..config import Config
 
 if TYPE_CHECKING:
     from ..agents.system import MetaAgentSystem
 
 console = Console()
 logger = logging.getLogger(__name__)
+config = Config()
 
 
 def create_agent_node(
@@ -106,8 +108,8 @@ def create_agent_node(
                 "agent_id": agent_id,
                 "role": role,
                 "task": task,
-                "input_context": context[:2000] + "... [truncated]" if context and len(context) > 2000 else (context or "(no previous context)"),
-                "output": output_content[:2000] + "... [truncated]" if len(output_content) > 2000 else output_content,
+                "input_context": context[:config.agent_context_limit] + "... [truncated]" if context and len(context) > config.agent_context_limit else (context or "(no previous context)"),
+                "output": output_content[:config.agent_context_limit] + "... [truncated]" if len(output_content) > config.agent_context_limit else output_content,
                 "layer": agent_layer,
                 "timestamp": datetime.now().isoformat()
             }

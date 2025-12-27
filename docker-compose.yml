@@ -1,0 +1,110 @@
+# Magentic Docker Compose
+# Production-ready multi-service setup
+
+services:
+  # ============================================================================
+  # Main Application
+  # ============================================================================
+  app:
+    build: .
+    container_name: magentic-app
+    ports:
+      - "8000:8000"
+    environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:1b}
+      - ENABLE_RAG=${ENABLE_RAG:-false}
+      - ENABLE_MCP=${ENABLE_MCP:-false}
+      - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-false}
+      - RAG_QDRANT_MODE=server
+      - RAG_QDRANT_URL=http://qdrant:6333
+    volumes:
+      - ./data:/app/data
+      - ./rag_data:/app/rag_data
+    depends_on:
+      - ollama
+    networks:
+      - magentic-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================================================
+  # Ollama LLM Service
+  # ============================================================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: magentic-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - magentic-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # ============================================================================
+  # Qdrant Vector Database (for RAG)
+  # ============================================================================
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: magentic-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    networks:
+      - magentic-network
+    restart: unless-stopped
+    profiles:
+      - rag
+
+  # ============================================================================
+  # MCP Gateway (for tools)
+  # ============================================================================
+  mcp-gateway:
+    build: ./docker/mcp-gateway
+    container_name: magentic-mcp
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./docker/mcp-gateway/config.json:/app/config.json:ro
+    networks:
+      - magentic-network
+    restart: unless-stopped
+    profiles:
+      - mcp
+
+  # ============================================================================
+  # Phoenix Observability (optional)
+  # ============================================================================
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: magentic-phoenix
+    ports:
+      - "6006:6006"
+    networks:
+      - magentic-network
+    restart: unless-stopped
+    profiles:
+      - observability
+
+networks:
+  magentic-network:
+    driver: bridge
+
+volumes:
+  ollama-data:
+  qdrant-data:

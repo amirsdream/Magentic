@@ -50,6 +50,10 @@ class Config:
         # UI Display settings
         self.ui_display_limit: int = int(os.getenv("UI_DISPLAY_LIMIT", "200"))
         
+        # Agent context limits (for inter-agent communication)
+        self.agent_context_limit: int = int(os.getenv("AGENT_CONTEXT_LIMIT", "4000"))  # Per-agent output limit when passed to next layer
+        self.agent_history_limit: int = int(os.getenv("AGENT_HISTORY_LIMIT", "500"))   # Preview limit for conversation history
+        
         # RAG settings
         self.enable_rag: bool = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
         self.rag_vector_store: str = os.getenv("RAG_VECTOR_STORE", "qdrant")

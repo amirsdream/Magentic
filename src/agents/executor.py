@@ -11,12 +11,16 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
 from ..role_library import RoleLibrary, AgentRole as Role
+from ..config import Config
 from .token_tracker import get_tracker, TokenUsage
 
 if TYPE_CHECKING:
     from ..tools.manager import ToolManager
 
 logger = logging.getLogger(__name__)
+
+# Load config for limits
+_config = Config()
 
 class AgentExecutor:
     """Handles execution of individual agents with MCP gateway integration."""
@@ -44,6 +48,10 @@ class AgentExecutor:
         self.ui_display_limit = ui_display_limit
         self.tool_manager = tool_manager
         self._role_tools_cache: Dict[str, List[BaseTool]] = {}
+        
+        # Context limits from config
+        self.context_limit = _config.agent_context_limit
+        self.history_limit = _config.agent_history_limit
         
         # Token tracking for current execution
         self._current_agent_id: Optional[str] = None
@@ -229,13 +237,14 @@ class AgentExecutor:
             for i, step in enumerate(conversation_history[-3:], 1):
                 context_parts.append(f"\nStep {i} - {step.get('role', 'unknown')} ({step.get('agent_id', '')}):") 
                 context_parts.append(f"  Task: {step.get('task', '')[:100]}")
-                context_parts.append(f"  Output: {step.get('output', '')[:200]}...")
+                step_output = step.get('output', '')[:self.history_limit]
+                context_parts.append(f"  Output: {step_output}...")
         
         if previous_outputs:
             logger.info(f"Agent has {len(previous_outputs)} previous outputs to incorporate")
             context_parts.append("\n=== Outputs from Previous Agents ===")
             for i, output in enumerate(previous_outputs, 1):
-                output_display = output[:500] + "..." if len(output) > 500 else output
+                output_display = output[:self.context_limit] + "..." if len(output) > self.context_limit else output
                 context_parts.append(f"\nAgent {i} output:\n{output_display}")
         else:
             context_parts.append("\n=== You are the first agent ===")

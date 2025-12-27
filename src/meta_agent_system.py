@@ -605,11 +605,12 @@ class MetaAgentSystem:
         # Add conversation history from previous steps if available
         if conversation_history:
             context_parts.append("\n=== Previous Agent Conversation Steps ===")
+            history_limit = self.config.agent_history_limit
             for i, step in enumerate(conversation_history[-3:], 1):  # Last 3 steps for context
                 context_parts.append(f"\nStep {i} - {step.get('role', 'unknown')} ({step.get('agent_id', '')}):") 
                 context_parts.append(f"  Task: {step.get('task', '')[:200]}")
                 step_output = step.get('output', '')
-                output_preview = step_output[:500] + "..." if len(step_output) > 500 else step_output
+                output_preview = step_output[:history_limit] + "..." if len(step_output) > history_limit else step_output
                 context_parts.append(f"  Output: {output_preview}")
         
         # Add user conversation history if available (from meta_system.conversation_history)
@@ -625,9 +626,10 @@ class MetaAgentSystem:
         if previous_outputs:
             logger.info(f"Agent has {len(previous_outputs)} previous outputs to incorporate")
             context_parts.append("\n=== Outputs from Previous Agents ===")
+            context_limit = self.config.agent_context_limit
             for i, output in enumerate(previous_outputs, 1):
-                # Truncate only if extremely long (preserve more context for multi-agent flows)
-                output_display = output[:2000] + "... [truncated]" if len(output) > 2000 else output
+                # Truncate based on config (preserve context for multi-agent flows)
+                output_display = output[:context_limit] + "... [truncated]" if len(output) > context_limit else output
                 context_parts.append(f"\nAgent {i} output:\n{output_display}")
                 logger.info(f"Adding previous output {i} ({len(output)} chars): {output[:300]}...")
         else:
