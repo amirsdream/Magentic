@@ -15,8 +15,11 @@ class TestConfig:
         assert config.max_parallel_agents >= 1
         assert config.ui_display_limit >= 50
 
-    def test_agent_context_limits(self):
+    def test_agent_context_limits(self, monkeypatch):
         """Test agent context limit defaults."""
+        # Clear any existing env vars to test defaults
+        monkeypatch.delenv("AGENT_CONTEXT_LIMIT", raising=False)
+        monkeypatch.delenv("AGENT_HISTORY_LIMIT", raising=False)
         config = Config()
         assert config.agent_context_limit == 4000
         assert config.agent_history_limit == 500
@@ -35,7 +38,7 @@ class TestConfig:
         config.llm_provider = "invalid"
         is_valid, error = config.validate()
         assert is_valid is False
-        assert "LLM_PROVIDER" in error
+        assert error is not None and "LLM_PROVIDER" in error
 
 
 class TestConfigEnvOverrides:

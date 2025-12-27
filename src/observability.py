@@ -11,6 +11,7 @@ try:
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+
     PHOENIX_AVAILABLE = True
 except ImportError:
     PHOENIX_AVAILABLE = False
@@ -26,7 +27,7 @@ class ObservabilityManager:
 
     def __init__(self, config: Config):
         """Initialize observability manager.
-        
+
         Args:
             config: Application configuration.
         """
@@ -36,20 +37,22 @@ class ObservabilityManager:
 
     def setup(self) -> bool:
         """Set up Phoenix observability.
-        
+
         Returns:
             True if setup was successful, False otherwise.
         """
         if not PHOENIX_AVAILABLE:
             logger.warning("Phoenix not installed. Observability disabled.")
-            logger.warning("Install with: pip install arize-phoenix openinference-instrumentation-langchain")
+            logger.warning(
+                "Install with: pip install arize-phoenix openinference-instrumentation-langchain"
+            )
             return False
-            
+
         try:
             # Launch Phoenix app
             logger.info("Starting Phoenix observability...")
             self.session = px.launch_app()
-            
+
             # Configure OpenTelemetry
             endpoint = f"http://127.0.0.1:{self.config.phoenix_port}/v1/traces"
             tracer_provider = TracerProvider()
@@ -57,14 +60,14 @@ class ObservabilityManager:
                 SimpleSpanProcessor(OTLPSpanExporter(endpoint=endpoint))
             )
             trace_api.set_tracer_provider(tracer_provider)
-            
+
             # Instrument LangChain
             LangChainInstrumentor().instrument()
             self._instrumented = True
-            
+
             logger.info(f"✓ Phoenix observability started at {self.get_url()}")
             return True
-            
+
         except RuntimeError as e:
             if "Failed to bind" in str(e) or "address" in str(e).lower():
                 logger.warning(f"⚠️  Phoenix failed to start (port conflict): {e}")
@@ -74,7 +77,7 @@ class ObservabilityManager:
             else:
                 logger.error(f"Phoenix error: {e}")
             return False
-            
+
         except Exception as e:
             logger.warning(f"⚠️  Failed to set up observability: {e}")
             logger.warning(f"⚠️  Continuing without observability")
@@ -82,17 +85,17 @@ class ObservabilityManager:
 
     def get_url(self) -> str:
         """Get the Phoenix UI URL.
-        
+
         Returns:
             The Phoenix URL or a default message.
         """
-        if self.session and hasattr(self.session, 'url'):
+        if self.session and hasattr(self.session, "url"):
             return self.session.url
         return f"http://localhost:{self.config.phoenix_port}"
 
     def is_active(self) -> bool:
         """Check if observability is active.
-        
+
         Returns:
             True if observability is running, False otherwise.
         """

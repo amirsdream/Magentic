@@ -18,7 +18,7 @@ RUN npm run build
 # ============================================================================
 # Stage 2: Python Backend
 # ============================================================================
-FROM python:3.11-slim AS backend
+FROM python:3.10-slim AS backend
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
