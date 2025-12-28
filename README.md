@@ -142,12 +142,31 @@ Query → RAG Context → Meta-Coordinator → Execution Plan → LangGraph DAG
 
 | Document | Description |
 |----------|-------------|
+| [📖 Documentation](https://amirsdream.github.io/Magentic/) | Full documentation (GitHub Pages) |
+| [Swagger UI](/docs) | Interactive API documentation |
+| [ReDoc](/redoc) | Alternative API documentation |
 | [INSTALL.md](INSTALL.md) | Manual installation guide |
 | [Architecture](docs/ARCHITECTURE.md) | System design |
 | [Authentication](docs/AUTHENTICATION.md) | Auth and security |
 | [Observability](docs/OBSERVABILITY.md) | Monitoring setup |
 | [RAG & Tools](docs/RAG_AND_TOOLS.md) | RAG and MCP setup |
 | [CHANGELOG](CHANGELOG.md) | Version history |
+
+### API Documentation
+
+When the server is running, interactive API docs are available:
+
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+- **OpenAPI JSON**: http://localhost:8000/openapi.json
+
+### Build Static Docs (Sphinx)
+
+```bash
+pip install -r docs/sphinx/requirements-docs.txt
+cd docs/sphinx && make html          # Build static docs
+cd docs/sphinx && make livehtml      # Live server on http://localhost:8010
+```
 
 ## Contributing
 

@@ -5,6 +5,8 @@ All notable changes to Magentic are documented here.
 ## [1.3.0] - 2024-12-28
 
 ### Added
+- **GitHub Pages Documentation** — Sphinx docs auto-deployed to GitHub Pages
+- **Swagger/OpenAPI Documentation** — Interactive API docs at `/docs` and `/redoc`
 - **Streaming Agent Logs** — Real-time activity logs in agent detail panel
 - **Retry Execution** — Retry stopped/completed executions from UI
 - **Agent Detail Modal** — Popup modal with Overview, Output, Activity, Tools tabs

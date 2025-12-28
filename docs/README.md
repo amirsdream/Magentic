@@ -1,22 +1,36 @@
 # Documentation
 
-## Building Docs
+## Structure
 
-Uses [Sphinx](https://www.sphinx-doc.org/) with Furo theme.
-
-### Quick Start
-
-```bash
-pip install -r docs/requirements-docs.txt
-cd docs && make html
-# View: docs/_build/html/index.html
+```
+docs/
+├── ARCHITECTURE.md      # System design
+├── AUTHENTICATION.md    # JWT auth, usage stats
+├── OBSERVABILITY.md     # Prometheus, Grafana, Loki
+├── RAG_AND_TOOLS.md     # RAG and MCP setup
+├── architecture_diagram.svg
+└── sphinx/              # Sphinx API documentation
+    ├── conf.py
+    ├── index.rst
+    ├── Makefile
+    └── api/
 ```
 
-### Live Reload
+## Sphinx API Docs
+
+Build API documentation with Sphinx:
 
 ```bash
-cd docs && make livehtml
-# Opens http://127.0.0.1:8000
+# Install dependencies
+pip install -r docs/sphinx/requirements-docs.txt
+
+# Build static HTML
+cd docs/sphinx && make html
+# View: docs/sphinx/_build/html/index.html
+
+# Live reload server (port 8010)
+cd docs/sphinx && make livehtml
+# Opens http://localhost:8010
 ```
 
 ## Guides
@@ -30,27 +44,28 @@ cd docs && make livehtml
 
 ## API Reference
 
-### Endpoints
+### REST Endpoints
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /health` | System status |
-| `WS /ws` | WebSocket for queries |
-| `POST /auth/register` | Create user |
-| `POST /auth/jwt/login` | Login (returns JWT) |
-| `GET /auth/me` | Current user |
-| `GET /auth/me/stats` | Usage stats |
-| `GET /profile/{username}` | User profile |
-| `PUT /profile/{username}` | Update profile |
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | System status |
+| `/auth/register` | POST | Create user |
+| `/auth/jwt/login` | POST | Login (returns JWT) |
+| `/auth/me` | GET | Current user |
+| `/auth/me/stats` | GET | Usage stats |
+| `/profile/{username}` | GET | User profile |
+| `/profile/{username}` | PUT | Update profile |
 
-### WebSocket Protocol
+### WebSocket
+
+Connect to `ws://localhost:8000/ws`
 
 **Send:**
 ```json
 {"query": "What is Python?", "conversation_id": "uuid"}
 ```
 
-**Receive:**
+**Receive Events:**
 
 | Event | Description |
 |-------|-------------|

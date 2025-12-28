@@ -6,9 +6,9 @@
 import os
 import sys
 
-# Add the project root to the path for autodoc
-sys.path.insert(0, os.path.abspath('..'))
-sys.path.insert(0, os.path.abspath('../src'))
+# Add the project root to the path for autodoc (now two levels up from sphinx/)
+sys.path.insert(0, os.path.abspath('../..'))
+sys.path.insert(0, os.path.abspath('../../src'))
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
@@ -16,8 +16,8 @@ sys.path.insert(0, os.path.abspath('../src'))
 project = 'Magentic'
 copyright = '2024-2025, Magentic Team'
 author = 'Magentic Team'
-release = '1.2.0'
-version = '1.2.0'
+release = '1.3.0'
+version = '1.3.0'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -54,8 +54,19 @@ autodoc_typehints = 'description'
 autodoc_mock_imports = [
     'phoenix', 'openinference', 'opentelemetry', 'langchain', 'langgraph',
     'langchain_core', 'langchain_ollama', 'langchain_openai', 'langchain_anthropic',
+    'langchain_qdrant', 'langchain_community', 'langchain_text_splitters',
     'fastapi', 'uvicorn', 'pydantic', 'sqlalchemy', 'aiosqlite',
-    'qdrant_client', 'chromadb', 'httpx', 'websockets'
+    'qdrant_client', 'chromadb', 'httpx', 'websockets', 'fastapi_users',
+    'fastapi_users_db_sqlalchemy', 'duckduckgo_search', 'sentence_transformers',
+    'prometheus_client', 'passlib', 'jwt', 'python_jose', 'bcrypt'
+]
+
+# Suppress warnings
+suppress_warnings = [
+    'ref.python',
+    'autodoc.import_object',
+    'autodoc',
+    'toc.not_readable',
 ]
 
 # Napoleon settings for Google-style docstrings
@@ -67,10 +78,9 @@ napoleon_include_private_with_doc = False
 # Autosummary settings
 autosummary_generate = True
 
-# Intersphinx mapping to external docs
+# Intersphinx mapping to external docs (only Python, langchain inventory is broken)
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3', None),
-    'langchain': ('https://api.python.langchain.com/en/latest/', None),
 }
 
 templates_path = ['_templates']
@@ -88,25 +98,20 @@ master_doc = 'index'
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'furo'  # Modern, clean theme (alternative: 'sphinx_rtd_theme')
+html_theme = 'sphinx_rtd_theme'  # ReadTheDocs theme with stable sidebar
 html_static_path = ['_static']
 html_title = 'Magentic Documentation'
 html_short_title = 'Magentic'
 html_logo = None  # Add logo path if you have one
 html_favicon = None  # Add favicon path if you have one
 
-# Theme options for Furo
+# Theme options for ReadTheDocs theme
 html_theme_options = {
-    "light_css_variables": {
-        "color-brand-primary": "#4a148c",  # Purple to match the app
-        "color-brand-content": "#4a148c",
-    },
-    "dark_css_variables": {
-        "color-brand-primary": "#ce93d8",
-        "color-brand-content": "#ce93d8",
-    },
-    "sidebar_hide_name": False,
-    "navigation_with_keys": True,
+    'navigation_depth': 4,
+    'collapse_navigation': False,  # Keep sidebar expanded
+    'sticky_navigation': True,
+    'includehidden': True,
+    'titles_only': False,
 }
 
 # -- Options for LaTeX output ------------------------------------------------

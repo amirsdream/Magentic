@@ -84,7 +84,7 @@ Pre-configured dashboards in `docker/observability/grafana/dashboards/`:
 
 ### LogQL Queries
 
-```logql
+```bash
 # API logs
 {container_name="magentic-api"}
 

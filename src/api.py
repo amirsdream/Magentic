@@ -67,7 +67,38 @@ class LoginRequest(BaseModel):
     password: str
 
 
-app = FastAPI(title="Magentic API", version="2.0.0")
+app = FastAPI(
+    title="Magentic API",
+    version="1.3.0",
+    description="""
+## Magentic - Dynamic Multi-Agent AI Orchestration
+
+Magentic is an AI orchestrator that analyzes queries and deploys specialized agents to tackle each part.
+
+### Features
+- **Dynamic Planning** - AI creates optimal agent networks per query
+- **Parallel Execution** - Agents run simultaneously via LangGraph DAG
+- **Real-time Streaming** - WebSocket updates with streaming logs
+- **Usage Tracking** - Token counts and cost tracking per user
+
+### Authentication
+Most endpoints require JWT authentication. Get a token via `/auth/jwt/login`.
+
+### WebSocket
+Connect to `/ws` for real-time query execution with streaming updates.
+    """,
+    docs_url="/docs",  # Swagger UI
+    redoc_url="/redoc",  # ReDoc
+    openapi_url="/openapi.json",
+    openapi_tags=[
+        {"name": "auth", "description": "Authentication endpoints (JWT)"},
+        {"name": "profile", "description": "User profile management"},
+        {"name": "chat", "description": "Chat sessions and history"},
+        {"name": "query", "description": "Query execution"},
+        {"name": "memory", "description": "Conversation memory management"},
+        {"name": "health", "description": "Health checks and system info"},
+    ],
+)
 
 # Import and include auth router (using fastapi-users)
 from .auth.router import router as auth_router
@@ -208,20 +239,20 @@ async def startup_event():
     logger.info("✓ System warmed up")
 
 
-@app.get("/")
+@app.get("/", tags=["health"])
 async def root():
-    """Root endpoint."""
+    """Root endpoint - API info and status."""
     return {
         "name": "Magentic API",
-        "version": "2.0.0",
+        "version": "1.3.0",
         "status": "ready",
         "llm_provider": config.llm_provider if config else "unknown",
     }
 
 
-@app.get("/health")
+@app.get("/health", tags=["health"])
 async def health_check():
-    """Health check endpoint."""
+    """Health check endpoint - verify API is running."""
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
@@ -229,9 +260,9 @@ async def health_check():
     }
 
 
-@app.get("/pricing")
+@app.get("/pricing", tags=["health"])
 async def get_pricing():
-    """Get LLM pricing information."""
+    """Get LLM pricing information for token cost calculation."""
     from .pricing import get_pricing_table_summary, get_model_pricing
     
     current_model_pricing = None
@@ -251,9 +282,9 @@ async def get_pricing():
     }
 
 
-@app.get("/profile/{username}")
+@app.get("/profile/{username}", tags=["profile"])
 async def get_profile(username: str, db: Session = Depends(get_db)):
-    """Get user profile."""
+    """Get user profile by username."""
     user = get_or_create_user(db, username, is_guest=True)
     return {
         "id": user.id,
@@ -274,9 +305,9 @@ async def get_profile(username: str, db: Session = Depends(get_db)):
     }
 
 
-@app.post("/register")
+@app.post("/register", tags=["auth"], deprecated=True)
 async def register(request: RegisterRequest, db: Session = Depends(get_db)):
-    """Register a new user."""
+    """Register a new user (deprecated - use /auth/register instead)."""
     if len(request.username) < 3:
         raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
 
@@ -300,9 +331,9 @@ async def register(request: RegisterRequest, db: Session = Depends(get_db)):
     }
 
 
-@app.post("/login")
+@app.post("/login", tags=["auth"], deprecated=True)
 async def login(request: LoginRequest, db: Session = Depends(get_db)):
-    """Login user."""
+    """Login user (deprecated - use /auth/jwt/login instead)."""
     user, error = authenticate_user(db, request.username, request.password)
 
     if error or not user:
@@ -321,9 +352,9 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
     }
 
 
-@app.put("/profile/{username}")
+@app.put("/profile/{username}", tags=["profile"])
 async def update_profile(username: str, updates: dict, db: Session = Depends(get_db)):
-    """Update user profile."""
+    """Update user profile settings (display name, avatar, theme)."""
     user = get_or_create_user(db, username)
 
     if "display_name" in updates:
@@ -340,9 +371,9 @@ async def update_profile(username: str, updates: dict, db: Session = Depends(get
     return {"success": True, "message": "Profile updated"}
 
 
-@app.get("/history/{username}")
+@app.get("/history/{username}", tags=["chat"])
 async def get_history(username: str, limit: int = 50, db: Session = Depends(get_db)):
-    """Get conversation history for user."""
+    """Get conversation history for user (queries and responses)."""
     user = get_or_create_user(db, username)
     conversations = get_user_conversations(db, user.id, limit)  # type: ignore
 
@@ -387,7 +418,7 @@ class AddMessageRequest(BaseModel):
     execution_data: Optional[dict] = None
 
 
-@app.post("/chats")
+@app.post("/chats", tags=["chat"])
 async def create_chat(request: CreateChatRequest, db: Session = Depends(get_db)):
     """Create a new chat session."""
     user = get_or_create_user(db, request.username)
@@ -408,7 +439,7 @@ async def create_chat(request: CreateChatRequest, db: Session = Depends(get_db))
     }
 
 
-@app.get("/chats/{username}")
+@app.get("/chats/{username}", tags=["chat"])
 async def get_user_chats(username: str, limit: int = 50, db: Session = Depends(get_db)):
     """Get all chat sessions for a user."""
     user = get_or_create_user(db, username)
@@ -430,7 +461,7 @@ async def get_user_chats(username: str, limit: int = 50, db: Session = Depends(g
     }
 
 
-@app.get("/chats/{username}/{session_id}")
+@app.get("/chats/{username}/{session_id}", tags=["chat"])
 async def get_chat(username: str, session_id: str, db: Session = Depends(get_db)):
     """Get a specific chat session with all messages."""
     session = get_chat_session(db, session_id)
@@ -457,7 +488,7 @@ async def get_chat(username: str, session_id: str, db: Session = Depends(get_db)
     }
 
 
-@app.patch("/chats/{session_id}")
+@app.patch("/chats/{session_id}", tags=["chat"])
 async def update_chat(
     session_id: str, request: UpdateChatTitleRequest, db: Session = Depends(get_db)
 ):
@@ -469,7 +500,7 @@ async def update_chat(
     return {"success": True, "title": session.title}
 
 
-@app.delete("/chats/{session_id}")
+@app.delete("/chats/{session_id}", tags=["chat"])
 async def delete_chat(session_id: str, db: Session = Depends(get_db)):
     """Delete a chat session."""
     success = delete_chat_session(db, session_id)
@@ -479,7 +510,7 @@ async def delete_chat(session_id: str, db: Session = Depends(get_db)):
     return {"success": True}
 
 
-@app.post("/chats/{session_id}/messages")
+@app.post("/chats/{session_id}/messages", tags=["chat"])
 async def add_message(session_id: str, request: AddMessageRequest, db: Session = Depends(get_db)):
     """Add a message to a chat session."""
     message = add_chat_message(
@@ -503,7 +534,7 @@ async def add_message(session_id: str, request: AddMessageRequest, db: Session =
     }
 
 
-@app.post("/query", response_model=QueryResponse)
+@app.post("/query", response_model=QueryResponse, tags=["query"])
 async def process_query(request: QueryRequest):
     """Process a query (non-streaming endpoint)."""
     try:
@@ -1021,7 +1052,7 @@ async def execute_with_progress(
         meta_system.execute_agent_for_langgraph = original_execute
 
 
-@app.get("/memory")
+@app.get("/memory", tags=["memory"])
 async def get_memory():
     """Get conversation memory."""
     if not meta_system:
@@ -1033,7 +1064,7 @@ async def get_memory():
     }
 
 
-@app.post("/memory/clear")
+@app.post("/memory/clear", tags=["memory"])
 async def clear_memory():
     """Clear conversation memory."""
     if not meta_system:
