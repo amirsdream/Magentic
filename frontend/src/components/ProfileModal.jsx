@@ -8,26 +8,34 @@ import React, { useState, useEffect } from 'react';
 import { X, Save, LogOut, Loader2, Check, Coins, DollarSign } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const EMOJI_OPTIONS = ['👤', '🧑', '👨', '👩', '🦸', '🦹', '👽', '🤖', '🐱', '🐶', '🦊', '🐼', '🦄', '🐸', '🦋', '🌟'];
-const THEME_OPTIONS = [
-  { value: 'dark', label: 'Dark' },
-  { value: 'light', label: 'Light' },
-  { value: 'system', label: 'System' },
-];
 
 export default function ProfileModal({ isOpen, onClose }) {
-  const { user, isGuest, logout, updateProfile } = useAuth();
+  const { user, isGuest, logout, updateProfile, token } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
+  const [stats, setStats] = useState(null);
   
   // Form state
   const [formData, setFormData] = useState({
     display_name: '',
     avatar_emoji: '👤',
-    theme: 'dark',
   });
+
+  // Fetch stats when modal opens
+  useEffect(() => {
+    if (isOpen && token && !isGuest) {
+      fetch(`${API_URL}/auth/me/stats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => data && setStats(data))
+        .catch(err => console.error('Failed to fetch stats:', err));
+    }
+  }, [isOpen, token, isGuest]);
 
   // Animation on open and load user data
   useEffect(() => {
@@ -37,7 +45,6 @@ export default function ProfileModal({ isOpen, onClose }) {
         setFormData({
           display_name: user.display_name || '',
           avatar_emoji: user.avatar_emoji || '👤',
-          theme: user.theme || 'dark',
         });
       }
     } else {
@@ -72,7 +79,6 @@ export default function ProfileModal({ isOpen, onClose }) {
       setFormData({
         display_name: user.display_name || '',
         avatar_emoji: user.avatar_emoji || '👤',
-        theme: user.theme || 'dark',
       });
     }
   };
@@ -160,56 +166,32 @@ export default function ProfileModal({ isOpen, onClose }) {
             </div>
           </div>
 
-          {/* Theme */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-2">
-              Theme
-            </label>
-            <div className="flex gap-2">
-              {THEME_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  disabled={isGuest || !isEditing}
-                  onClick={() => setFormData(prev => ({ ...prev, theme: option.value }))}
-                  className={`flex-1 px-4 py-2 rounded-xl text-center text-sm font-medium transition-all ${
-                    formData.theme === option.value
-                      ? 'bg-violet-500/20 border-2 border-violet-500 text-violet-600 dark:text-purple-400'
-                      : 'bg-slate-100 dark:bg-gray-800 border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400'
-                  } ${(isGuest || !isEditing) ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Stats */}
-          {user && (
+          {user && !isGuest && (
             <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 dark:bg-gray-800/50 rounded-xl">
               <div className="text-center">
                 <p className="text-2xl font-bold text-violet-600 dark:text-purple-400">
-                  {user.total_queries || 0}
+                  {stats?.total_queries ?? '—'}
                 </p>
                 <p className="text-xs text-slate-500 dark:text-gray-400">Queries</p>
               </div>
               <div className="text-center">
                 <p className="text-2xl font-bold text-violet-600 dark:text-purple-400">
-                  {user.total_agents_executed || 0}
+                  {stats?.total_agents_executed ?? '—'}
                 </p>
                 <p className="text-xs text-slate-500 dark:text-gray-400">Agents Run</p>
               </div>
               <div className="text-center">
                 <p className="text-2xl font-bold text-amber-600 dark:text-amber-400 flex items-center justify-center gap-1">
                   <Coins className="w-5 h-5" />
-                  {(user.total_tokens_used || 0).toLocaleString()}
+                  {stats?.total_tokens_used?.toLocaleString() ?? '—'}
                 </p>
                 <p className="text-xs text-slate-500 dark:text-gray-400">Total Tokens</p>
               </div>
               <div className="text-center">
                 <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-1">
                   <DollarSign className="w-5 h-5" />
-                  {(user.total_cost || 0).toFixed(4)}
+                  {stats?.total_cost?.toFixed(4) ?? '—'}
                 </p>
                 <p className="text-xs text-slate-500 dark:text-gray-400">Total Cost</p>
               </div>

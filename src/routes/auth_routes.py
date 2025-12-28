@@ -23,15 +23,14 @@ from ..database import (
     get_password_hash,
     verify_password,
 )
+from ..auth.users import JWT_SECRET
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 security = HTTPBearer(auto_error=False)
 
-# JWT Configuration - use environment variable or generate random for dev
-import os
-JWT_SECRET = os.environ.get("JWT_SECRET", secrets.token_hex(32))
+# JWT Configuration
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 REFRESH_TOKEN_EXPIRE_DAYS = 7

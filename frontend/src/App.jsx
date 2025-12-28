@@ -53,6 +53,7 @@ function App() {
     toggleExecutionDetails,
     toggleAgentFlow,
     theme,
+    setTheme,
   } = useUIStore();
   
   const { setExecution, clearExecution } = useExecutionStore();
@@ -114,6 +115,15 @@ function App() {
   useEffect(() => {
     setConnected(isConnected);
   }, [isConnected, setConnected]);
+
+  // Sync theme from user profile when first logged in (only once)
+  const [themeSynced, setThemeSynced] = React.useState(false);
+  useEffect(() => {
+    if (user?.theme && !themeSynced) {
+      setTheme(user.theme);
+      setThemeSynced(true);
+    }
+  }, [user?.theme, themeSynced, setTheme]);
 
   // Show login modal if not authenticated (with small delay to prevent flash)
   useEffect(() => {

@@ -73,6 +73,61 @@ async def login_as_guest(session: AsyncSession = Depends(get_async_session)):
     }
 
 
+@router.get("/me/stats")
+async def get_my_stats(user: User = Depends(current_active_user)):
+    """Get calculated user stats from actual usage data.
+    
+    - total_queries: Calculated from conversations table
+    - total_agents_executed: Calculated from conversations table  
+    - total_tokens_used: Accumulated in user profile on each query
+    - total_cost: Accumulated in user profile on each query
+    """
+    from ..database import SessionLocal, UserProfile
+    from sqlalchemy import text
+    
+    db = SessionLocal()
+    try:
+        # Find user_profile by username (email prefix)
+        username = user.email.split('@')[0] if user.email else None
+        
+        if not username:
+            return {
+                "total_queries": 0,
+                "total_agents_executed": 0,
+                "total_tokens_used": 0,
+                "total_cost": 0.0,
+            }
+        
+        # Get user_profile
+        user_profile = db.query(UserProfile).filter(UserProfile.username == username).first()
+        
+        if not user_profile:
+            return {
+                "total_queries": 0,
+                "total_agents_executed": 0,
+                "total_tokens_used": 0,
+                "total_cost": 0.0,
+            }
+        
+        # Calculate queries and agents from actual conversations data
+        result = db.execute(text("""
+            SELECT 
+                COUNT(*) as total_queries,
+                COALESCE(SUM(agents_used), 0) as total_agents_executed
+            FROM conversations 
+            WHERE user_id = :user_id
+        """), {"user_id": user_profile.id}).fetchone()
+        
+        return {
+            "total_queries": result[0] if result else 0,
+            "total_agents_executed": result[1] if result else 0,
+            "total_tokens_used": user_profile.total_tokens_used or 0,
+            "total_cost": user_profile.total_cost or 0.0,
+        }
+    finally:
+        db.close()
+
+
 @router.get("/me", response_model=UserRead)
 async def get_me(user: User = Depends(current_active_user)):
     """Get current user profile - shorthand for /users/me."""

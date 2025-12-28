@@ -166,13 +166,22 @@ def run_migrations():
     
     # Define migrations: (table_name, column_name, column_type, default)
     migrations = [
+        # user_profiles table (legacy/main database)
         ("user_profiles", "total_tokens_used", "INTEGER", "0"),
         ("user_profiles", "total_cost", "REAL", "0.0"),
+        # users table (fastapi-users auth system)
+        ("users", "total_tokens_used", "INTEGER", "0"),
+        ("users", "total_cost", "REAL", "0.0"),
     ]
     
     with engine.connect() as conn:
         for table_name, column_name, column_type, default in migrations:
             try:
+                # Check if table exists first
+                tables = inspector.get_table_names()
+                if table_name not in tables:
+                    continue
+                    
                 existing_columns = [col["name"] for col in inspector.get_columns(table_name)]
                 
                 if column_name not in existing_columns:
@@ -195,13 +204,17 @@ def get_db():
 
 
 def get_or_create_user(db, username: str, is_guest: bool = True) -> UserProfile:
-    """Get existing user or create new one."""
+    """Get existing user or create new one. Updates is_guest flag if user exists."""
     user = db.query(UserProfile).filter(UserProfile.username == username).first()
     if not user:
         user = UserProfile(username=username, display_name=username, is_guest=is_guest)
         db.add(user)
         db.commit()
         db.refresh(user)
+    elif user.is_guest and not is_guest:
+        # Upgrade from guest to registered user
+        user.is_guest = False
+        db.commit()
     return user
 
 
@@ -264,7 +277,7 @@ def save_conversation(
     session_id: Optional[str] = None,
     token_usage: Optional[dict] = None,
 ):
-    """Save conversation to database."""
+    """Save conversation to database and update user token/cost stats."""
     conversation = Conversation(
         user_id=user_id,
         session_id=session_id,
@@ -275,19 +288,15 @@ def save_conversation(
     )
     db.add(conversation)
 
-    # Update user stats
+    # Update user token/cost stats (queries and agents are calculated from conversations table)
     user = db.query(UserProfile).filter(UserProfile.id == user_id).first()
-    if user:
-        user.total_queries += 1
-        if execution_plan:
-            user.total_agents_executed += len(execution_plan.get("agents", []))
-        
-        # Update token and cost stats
-        if token_usage:
-            total_tokens = token_usage.get("total_tokens", 0)
-            total_cost = token_usage.get("total_cost", 0.0)
-            user.total_tokens_used = (user.total_tokens_used or 0) + total_tokens
-            user.total_cost = (user.total_cost or 0.0) + total_cost
+    if user and token_usage:
+        # Extract from nested structure: {"total": {"total_tokens": N, "total_cost": X}, ...}
+        total_info = token_usage.get("total", {})
+        total_tokens = total_info.get("total_tokens", 0)
+        total_cost = total_info.get("total_cost", 0.0)
+        user.total_tokens_used = (user.total_tokens_used or 0) + total_tokens
+        user.total_cost = (user.total_cost or 0.0) + total_cost
 
     db.commit()
     return conversation
