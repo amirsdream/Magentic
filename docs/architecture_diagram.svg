@@ -110,9 +110,9 @@
   <g id="observability">
     <rect x="650" y="310" width="250" height="100" fill="#ffe0b2" stroke="#e65100" stroke-width="2" rx="5"/>
     <text x="775" y="335" text-anchor="middle" class="box-title" fill="#e65100">Observability</text>
-    <text x="665" y="355" class="box-text">• Phoenix Tracing (OpenTelemetry)</text>
-    <text x="665" y="375" class="box-text">• LangChain Instrumentation</text>
-    <text x="665" y="395" class="box-text">• Application Logs</text>
+    <text x="665" y="355" class="box-text">• Prometheus Metrics (/metrics)</text>
+    <text x="665" y="375" class="box-text">• Grafana Dashboards</text>
+    <text x="665" y="395" class="box-text">• Loki Log Aggregation</text>
   </g>
   
   <!-- MCP Servers -->

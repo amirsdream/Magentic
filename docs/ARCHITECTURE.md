@@ -22,7 +22,7 @@ User Query → Meta-Coordinator → Dynamic Agent Plan → LangGraph Execution �
 | **Qdrant/ChromaDB** | RAG Vector Store | Semantic search, document retrieval, embedding storage |
 | **SQLAlchemy** | Persistence | Conversation history, user accounts, usage stats |
 | **Token Tracker** | Usage Monitoring | Per-query token counting, cost calculation by LLM provider |
-| **Phoenix** | Observability | LLM tracing, OpenTelemetry instrumentation, execution debugging |
+| **Prometheus** | Observability | Metrics collection, Grafana dashboards, alerting |
 | **FastAPI** | API Layer | Async endpoints, WebSocket streaming, auth middleware |
 | **React + Zustand** | Frontend | Real-time UI, state management, execution visualization |
 
@@ -35,7 +35,7 @@ User Query → Meta-Coordinator → Dynamic Agent Plan → LangGraph Execution �
 | **Coordination** | MetaCoordinator | Query analysis, plan generation |
 | **Execution** | LangGraph | State management, parallel execution |
 | **Agents** | MetaAgentSystem | Agent orchestration, tool access |
-| **Observability** | Phoenix | LLM tracing, metrics, debugging |
+| **Observability** | Prometheus + Grafana | Metrics, dashboards, logging |
 | **RAG** | Qdrant/Chroma | Vector search, document retrieval |
 
 ## Execution Flow
@@ -126,41 +126,45 @@ Agents can also explicitly search via `search_knowledge_base` tool during execut
 
 ## Observability
 
-Magentic includes comprehensive observability via **Arize Phoenix** and **OpenTelemetry**:
+Magentic includes comprehensive observability via **Prometheus**, **Grafana**, and **Loki**:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Magentic Application                      │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │ LangChain   │  │ LangGraph   │  │ Agent Executions    │  │
-│  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘  │
-│         └────────────────┴─────────────────────┘             │
-│                          │                                   │
-│              ┌───────────▼───────────┐                       │
-│              │ LangChainInstrumentor │                       │
-│              │   (OpenInference)     │                       │
-│              └───────────┬───────────┘                       │
-│                          │ OTLP/HTTP                         │
-└──────────────────────────┼───────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    Magentic Application                          │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
+│  │ FastAPI     │  │ Agents      │  │ Token Tracker           │  │
+│  │ /metrics    │  │ Execution   │  │                         │  │
+│  └──────┬──────┘  └──────┬──────┘  └───────────┬─────────────┘  │
+│         └────────────────┼──────────────────────┘                │
+└──────────────────────────┼───────────────────────────────────────┘
+                           │ scrape /metrics
                            ▼
                ┌───────────────────────┐
-               │     Phoenix Server    │
-               │   http://localhost:   │
-               │        6006           │
+               │     Prometheus        │───────▶ Alerting
+               │   localhost:9090      │
+               └───────────┬───────────┘
+                           ▼
+               ┌───────────────────────┐
+               │       Grafana         │◀──── Loki (logs)
+               │   localhost:3001      │
                └───────────────────────┘
 ```
 
 **Key Features:**
-- **Trace Visualization**: Complete execution flow per query
-- **Token Analysis**: Input/output tokens per LLM call
-- **Latency Metrics**: Identify slow agents or operations
-- **Error Tracking**: Debug failed executions
+- **Prometheus Metrics**: HTTP, LLM, agent, tool metrics at `/metrics`
+- **Grafana Dashboards**: Pre-built dashboards for API and MCP monitoring
+- **Loki Logs**: Centralized log aggregation with LogQL queries
+- **Token Tracking**: Per-agent token counts and cost calculation
 
 **Configuration:**
 ```bash
-PHOENIX_ENABLED=true   # Enable Phoenix (default: true if installed)
-PHOENIX_PORT=6006      # Phoenix UI port
-PHOENIX_GRPC_PORT=4317 # OpenTelemetry collector port
+ENABLE_METRICS=true   # Enable Prometheus metrics endpoint
+```
+
+**Docker Services:**
+```bash
+cd docker
+docker compose up -d prometheus grafana loki promtail
 ```
 
 See [OBSERVABILITY.md](OBSERVABILITY.md) for detailed setup and usage.

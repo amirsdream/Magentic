@@ -1,6 +1,6 @@
 # Observability
 
-Magentic includes comprehensive observability features to help you monitor, debug, and understand agent executions.
+Magentic includes comprehensive observability features using **Prometheus**, **Grafana**, and **Loki** for monitoring, metrics, and log aggregation.
 
 ## Overview
 
@@ -8,119 +8,167 @@ The observability stack includes:
 
 | Component | Purpose | Port |
 |-----------|---------|------|
-| **Phoenix** | LLM tracing and debugging | 6006 |
-| **OpenTelemetry** | Distributed tracing | 4317 |
-| **Application Logs** | Structured logging | - |
+| **Prometheus** | Metrics collection & alerting | 9090 |
+| **Grafana** | Dashboards & visualization | 3001 |
+| **Loki** | Log aggregation | 3100 |
+| **Promtail** | Log collector | - |
 | **Token Tracker** | Usage metrics per agent | - |
 
-## Phoenix Tracing
-
-[Arize Phoenix](https://github.com/Arize-ai/phoenix) provides real-time LLM observability with:
-
-- **Trace Visualization** - See the complete execution flow
-- **Token Analysis** - Track input/output tokens per call
-- **Latency Metrics** - Identify slow agents or calls
-- **Error Tracking** - Debug failed executions
-
-### Installation
-
-Phoenix is optional. To enable it:
+## Quick Start
 
 ```bash
-pip install arize-phoenix openinference-instrumentation-langchain
-```
+# Start observability stack with Docker
+cd docker
+docker compose up -d prometheus grafana loki promtail
 
-### Configuration
-
-Set these environment variables:
-
-```bash
-# Enable Phoenix (default: true if installed)
-PHOENIX_ENABLED=true
-
-# Phoenix ports
-PHOENIX_PORT=6006
-PHOENIX_GRPC_PORT=4317
-```
-
-### Usage
-
-Phoenix starts automatically when the API server launches:
-
-```bash
+# Enable metrics in the API
+export ENABLE_METRICS=true
 python -m src.run_api
 ```
 
-Access the Phoenix UI at: **http://localhost:6006**
+**Access Points:**
+- **Grafana**: http://localhost:3001 (admin/admin)
+- **Prometheus**: http://localhost:9090
+- **API Metrics**: http://localhost:8000/metrics
 
-### What You'll See
+## Prometheus Metrics
 
-1. **Traces** - Each query creates a trace showing:
-   - Meta-coordinator planning
-   - Agent executions (parallel and sequential)
-   - Tool calls (RAG, web search, etc.)
-   - Token usage per LLM call
+The API exposes metrics at `/metrics` when `ENABLE_METRICS=true`.
 
-2. **Spans** - Individual operations within a trace:
-   - LLM invocations with prompts/responses
-   - Embedding generations
-   - Vector store queries
+### Available Metrics
 
-3. **Metrics** - Aggregated statistics:
-   - Average latency by agent type
-   - Token usage over time
-   - Error rates
+| Metric | Type | Description |
+|--------|------|-------------|
+| `http_requests_total` | Counter | Total HTTP requests by method, endpoint, status |
+| `http_request_duration_seconds` | Histogram | HTTP request latency |
+| `llm_requests_total` | Counter | LLM API calls by provider, model, status |
+| `llm_request_duration_seconds` | Histogram | LLM request latency |
+| `llm_tokens_total` | Counter | Tokens used by provider, model, type |
+| `llm_cost_dollars_total` | Counter | Total cost in dollars |
+| `agent_executions_total` | Counter | Agent executions by type, status |
+| `agent_execution_duration_seconds` | Histogram | Agent execution time |
+| `agents_in_progress` | Gauge | Currently executing agents |
+| `tool_calls_total` | Counter | Tool invocations by name, status |
+| `queries_total` | Counter | User queries by status |
+| `websocket_connections_active` | Gauge | Active WebSocket connections |
+| `rag_queries_total` | Counter | RAG queries by status |
+| `mcp_requests_total` | Counter | MCP server requests |
 
-## OpenTelemetry Integration
+### Configuration
 
-Phoenix uses OpenTelemetry for distributed tracing. The integration is handled by `src/observability.py`:
+```bash
+# Enable Prometheus metrics
+ENABLE_METRICS=true
 
-```python
-from src.observability import ObservabilityManager
-from src.config import Config
-
-config = Config()
-obs_manager = ObservabilityManager(config)
-
-# Start Phoenix and instrument LangChain
-if obs_manager.setup():
-    print(f"Phoenix running at {obs_manager.get_url()}")
+# The API will expose /metrics endpoint
 ```
 
-### Architecture
+### Example Prometheus Queries
+
+```promql
+# Request rate over 5 minutes
+sum(rate(http_requests_total[5m]))
+
+# Average LLM latency by provider
+avg(llm_request_duration_seconds) by (provider)
+
+# Total tokens used today
+sum(increase(llm_tokens_total[24h]))
+
+# Agent execution success rate
+sum(rate(agent_executions_total{status="success"}[5m])) 
+  / sum(rate(agent_executions_total[5m]))
+```
+
+## Grafana Dashboards
+
+Pre-configured dashboards are included:
+
+### Magentic Dashboard
+Located at `docker/observability/grafana/dashboards/magentic-dashboard.json`
+
+**Panels:**
+- HTTP Request Rate
+- Request Latency (p50, p95, p99)
+- LLM Provider Usage
+- Token Consumption
+- Agent Execution Times
+- Active WebSocket Connections
+- Error Rate
+
+### MCP Dashboard
+Located at `docker/observability/grafana/dashboards/mcp-dashboard.json`
+
+**Panels:**
+- MCP Request Rate
+- MCP Latency by Server
+- Tool Call Distribution
+- Error Tracking
+
+### Accessing Grafana
+
+1. Open http://localhost:3001
+2. Login with `admin` / `admin`
+3. Navigate to Dashboards → Browse
+4. Select "Magentic" or "MCP" dashboard
+
+## Loki Log Aggregation
+
+Loki collects logs from all containers via Promtail.
+
+### Log Queries (LogQL)
+
+```logql
+# All API logs
+{container_name="magentic-api"}
+
+# Error logs only
+{container_name=~".*"} |= "error"
+
+# LLM request logs
+{container_name="magentic-api"} |~ "LLM|llm"
+
+# Agent execution logs
+{container_name="magentic-api"} |= "agent" |= "executing"
+```
+
+### Viewing Logs in Grafana
+
+1. Open Grafana → Explore
+2. Select "Loki" datasource
+3. Enter LogQL query
+4. View log streams
+
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Magentic Application                      │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │ LangChain   │  │ LangGraph   │  │ Agent Executions    │  │
-│  │ Calls       │  │ State       │  │                     │  │
-│  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘  │
-│         │                │                     │             │
-│         └────────────────┴─────────────────────┘             │
-│                          │                                   │
-│              ┌───────────▼───────────┐                       │
-│              │ LangChainInstrumentor │                       │
-│              │   (OpenInference)     │                       │
-│              └───────────┬───────────┘                       │
-│                          │                                   │
-│              ┌───────────▼───────────┐                       │
-│              │   TracerProvider      │                       │
-│              │   (OpenTelemetry)     │                       │
-│              └───────────┬───────────┘                       │
-└──────────────────────────┼───────────────────────────────────┘
-                           │ OTLP/HTTP
+┌─────────────────────────────────────────────────────────────────┐
+│                    Magentic Application                          │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
+│  │ FastAPI     │  │ Agents      │  │ Token Tracker           │  │
+│  │ /metrics    │  │ Execution   │  │                         │  │
+│  └──────┬──────┘  └──────┬──────┘  └───────────┬─────────────┘  │
+│         │                │                      │                │
+│         └────────────────┼──────────────────────┘                │
+│                          │                                       │
+└──────────────────────────┼───────────────────────────────────────┘
+                           │ scrape /metrics
                            ▼
                ┌───────────────────────┐
-               │     Phoenix Server    │
-               │   http://localhost:   │
-               │        6006           │
+               │     Prometheus        │
+               │   localhost:9090      │
+               └───────────┬───────────┘
+                           │
+                           ▼
+               ┌───────────────────────┐
+               │       Grafana         │
+               │   localhost:3001      │◄──── Loki (logs)
                └───────────────────────┘
 ```
 
 ## Token Tracking
 
-Beyond Phoenix traces, Magentic tracks token usage at the application level for billing and analytics.
+Beyond Prometheus metrics, Magentic tracks token usage at the application level.
 
 ### TokenTracker Module
 
@@ -153,8 +201,7 @@ reset_tracker()
             "completion_tokens": 800,
             "total_tokens": 2300,
             "total_cost": 0.0023
-        },
-        # ... more agents
+        }
     },
     "planning": {
         "prompt_tokens": 500,
@@ -191,81 +238,70 @@ Response:
 }
 ```
 
-## Application Logging
+## Docker Compose Services
 
-Magentic uses Python's `logging` module with structured output.
+The observability stack is defined in `docker/docker-compose.yml`:
 
-### Log Levels
-
-| Level | Usage |
-|-------|-------|
-| `DEBUG` | Detailed execution info, token counts |
-| `INFO` | Normal operation, agent start/complete |
-| `WARNING` | Non-fatal issues, fallbacks |
-| `ERROR` | Failures requiring attention |
-
-### Configuration
-
-```bash
-# Set log level
-LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR
-
-# Example output
-2024-12-28 10:15:23 INFO  [api] Query received: "Compare Python and Rust"
-2024-12-28 10:15:24 INFO  [coordinator] Planned 4 agents in 2 layers
-2024-12-28 10:15:24 INFO  [executor] Starting layer 0: researcher_0, researcher_1
-2024-12-28 10:15:30 INFO  [executor] Layer 0 complete (6.2s)
-2024-12-28 10:15:35 INFO  [executor] All agents complete, total tokens: 5230
+```yaml
+services:
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      
+  grafana:
+    image: grafana/grafana:10.2.2
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+      
+  loki:
+    image: grafana/loki:2.9.3
+    ports:
+      - "3100:3100"
+      
+  promtail:
+    image: grafana/promtail:2.9.3
+    volumes:
+      - /var/log:/var/log
+      - ./observability/promtail/promtail-config.yml:/etc/promtail/config.yml
 ```
 
 ## Troubleshooting
 
-### Phoenix Won't Start
+### Metrics Not Appearing
 
-**Port conflict:**
-```bash
-# Check what's using port 4317
-lsof -i :4317
+1. Check `ENABLE_METRICS=true` is set
+2. Verify `/metrics` endpoint works: `curl http://localhost:8000/metrics`
+3. Check Prometheus targets: http://localhost:9090/targets
 
-# Kill the process
-lsof -ti:4317 | xargs kill -9
+### Grafana Shows No Data
 
-# Or use a different port
-export PHOENIX_GRPC_PORT=4318
-```
+1. Verify Prometheus is running: http://localhost:9090
+2. Check datasource in Grafana → Configuration → Data Sources
+3. Ensure time range is correct
 
-**Missing dependencies:**
-```bash
-pip install arize-phoenix openinference-instrumentation-langchain
-```
+### Loki Not Receiving Logs
 
-### No Traces Appearing
-
-1. Verify Phoenix is running: http://localhost:6006
-2. Check logs for instrumentation errors
-3. Ensure `PHOENIX_ENABLED=true`
-4. Try restarting the API server
-
-### High Memory Usage
-
-Phoenix stores traces in memory. For long-running servers:
-
-```bash
-# Restart Phoenix periodically
-# Or configure external storage (see Phoenix docs)
-```
+1. Check Promtail is running: `docker logs promtail`
+2. Verify Loki URL in promtail config
+3. Check container log paths
 
 ## Best Practices
 
-1. **Enable in Development** - Always use Phoenix during development
-2. **Disable in Production** - Unless you need production tracing
-3. **Monitor Token Usage** - Check `/auth/me/stats` regularly
-4. **Set Alerts** - Monitor for unusual token consumption
-5. **Review Traces** - Debug slow queries using Phoenix UI
+1. **Enable in Production** - Always use metrics in production
+2. **Set Alerts** - Configure Prometheus alerting for errors, latency
+3. **Monitor Token Usage** - Track costs via Grafana dashboards
+4. **Review Logs** - Use Loki for debugging slow queries
+5. **Dashboard Rotation** - Display dashboards on team monitors
 
 ## Related Documentation
 
 - [Architecture](ARCHITECTURE.md) - System design overview
 - [Authentication](AUTHENTICATION.md) - User auth and stats
-- [Phoenix Documentation](https://docs.arize.com/phoenix)
-- [OpenTelemetry Python](https://opentelemetry.io/docs/instrumentation/python/)
+- [Prometheus Docs](https://prometheus.io/docs/)
+- [Grafana Docs](https://grafana.com/docs/)

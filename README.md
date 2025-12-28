@@ -42,7 +42,7 @@ Magentic analyzes your questions and automatically creates an optimal network of
 - 🎨 **Modern Web UI** — Real-time execution visualization
 - 🔐 **User Auth** — JWT-based accounts with history, or guest mode
 - 📊 **Usage Tracking** — Real-time token usage and cost tracking per user
-- 🔭 **Observability** — Phoenix tracing with OpenTelemetry instrumentation
+- 🔭 **Observability** — Prometheus metrics, Grafana dashboards, Loki logs
 - 🌓 **Dark/Light Mode** — Theme toggle with per-user persistence
 
 **Supported LLMs:** Ollama (local/free), OpenAI, Claude
@@ -110,7 +110,7 @@ UI_DISPLAY_LIMIT=200         # Max chars shown in UI per agent (default: 200)
 | **RAG Engine** | Qdrant/ChromaDB | Active retrieval: auto-injects relevant context into planning phase |
 | **Persistence** | SQLAlchemy + SQLite | Full conversation history, user profiles, usage stats, and session management |
 | **Usage Tracking** | Token Tracker | Per-query token counting and cost calculation by LLM provider |
-| **Observability** | Phoenix + OpenTelemetry | LLM tracing, latency metrics, execution debugging |
+| **Observability** | Prometheus + Grafana | Metrics collection, dashboards, Loki log aggregation |
 | **State Management** | LangGraph State | Typed state with reducers, enabling complex multi-agent workflows |
 | **Real-time** | WebSocket | Live streaming of agent execution with token usage tracking |
 
