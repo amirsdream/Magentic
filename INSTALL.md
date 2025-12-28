@@ -110,6 +110,21 @@ Requires Docker:
 
 See [RAG & Tools Guide](docs/RAG_AND_TOOLS.md) for MCP setup.
 
+## Environment Variables
+
+### Authentication
+```bash
+JWT_SECRET=your-secure-secret-key  # Required for production
+```
+
+If `JWT_SECRET` is not set, a random secret is generated at startup (tokens will be invalidated on restart).
+
+### Usage Tracking
+Token usage and cost are automatically tracked per user:
+- Stored in `user_profiles.total_tokens_used` and `total_cost`
+- Viewable in Profile modal or via `/auth/me/stats` endpoint
+- Cost calculation based on LLM provider pricing
+
 ## Troubleshooting
 
 **Port already in use:**
@@ -121,6 +136,14 @@ See [RAG & Tools Guide](docs/RAG_AND_TOOLS.md) for MCP setup.
 **Database issues:**
 ```bash
 ./magentic.sh db-reset
+# Or delete data/magentic.db and restart
+```
+
+**Missing columns after update:**
+Database migrations run automatically on startup. If issues persist:
+```bash
+rm data/magentic.db
+python -c "from src.database import run_migrations; run_migrations()"
 ```
 
 **Missing dependencies:**

@@ -17,9 +17,11 @@ User Query → Meta-Coordinator → Dynamic Agent Plan → LangGraph Execution �
 | Technology | Purpose | Key Features |
 |------------|---------|---------------|
 | **LangGraph** | Agent Orchestration | DAG execution, state reducers, checkpointing, crash recovery |
+| **FastAPI-Users** | Authentication | JWT tokens, user management, secure password hashing |
 | **MCP Gateway** | Tool Integration | Docker-based Model Context Protocol server, extensible tools |
 | **Qdrant/ChromaDB** | RAG Vector Store | Semantic search, document retrieval, embedding storage |
-| **SQLAlchemy** | Persistence | Conversation history, user accounts, session management |
+| **SQLAlchemy** | Persistence | Conversation history, user accounts, usage stats |
+| **Token Tracker** | Usage Monitoring | Per-query token counting, cost calculation by LLM provider |
 | **FastAPI** | API Layer | Async endpoints, WebSocket streaming, auth middleware |
 | **React + Zustand** | Frontend | Real-time UI, state management, execution visualization |
 
@@ -137,10 +139,30 @@ Agents can also explicitly search via `search_knowledge_base` tool during execut
 ```
 
 **Persisted Data:**
-- User accounts (bcrypt hashed passwords)
+- User accounts (FastAPI-Users with JWT auth)
+- User profiles with preferences and usage stats
 - Conversation history with messages
 - Execution metadata and token usage
-- User preferences and profiles
+- Per-user token usage and cost accumulation
+
+## Usage Tracking
+
+Token usage and costs are tracked per user:
+
+```
+Query Execution → Token Tracker → save_conversation() → UserProfile
+                        ↓
+                 {total: {total_tokens, total_cost}}
+                        ↓
+                 user_profiles.total_tokens_used += total_tokens
+                 user_profiles.total_cost += total_cost
+```
+
+**Stats Endpoint:** `/auth/me/stats`
+- `total_queries`: Calculated from conversations table
+- `total_agents_executed`: Sum of agents_used from conversations
+- `total_tokens_used`: Accumulated from token tracker
+- `total_cost`: Accumulated based on LLM pricing
 
 ## Directory Structure
 
