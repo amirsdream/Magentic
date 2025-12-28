@@ -1,0 +1,13 @@
+# Sphinx build output
+_build/
+
+# Auto-generated files
+api/_autosummary/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*~

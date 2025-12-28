@@ -1,0 +1,21 @@
+/* Custom CSS for Magentic documentation */
+
+/* Make SVG diagrams responsive */
+img[src*="architecture_diagram.svg"] {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Code block styling */
+.highlight {
+    border-radius: 8px;
+}
+
+/* API documentation styling */
+.py.class > dt,
+.py.function > dt,
+.py.method > dt {
+    background-color: var(--color-background-secondary);
+    padding: 0.5rem;
+    border-radius: 4px;
+}

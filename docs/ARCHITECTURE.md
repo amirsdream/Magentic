@@ -22,6 +22,7 @@ User Query → Meta-Coordinator → Dynamic Agent Plan → LangGraph Execution �
 | **Qdrant/ChromaDB** | RAG Vector Store | Semantic search, document retrieval, embedding storage |
 | **SQLAlchemy** | Persistence | Conversation history, user accounts, usage stats |
 | **Token Tracker** | Usage Monitoring | Per-query token counting, cost calculation by LLM provider |
+| **Phoenix** | Observability | LLM tracing, OpenTelemetry instrumentation, execution debugging |
 | **FastAPI** | API Layer | Async endpoints, WebSocket streaming, auth middleware |
 | **React + Zustand** | Frontend | Real-time UI, state management, execution visualization |
 
@@ -34,19 +35,13 @@ User Query → Meta-Coordinator → Dynamic Agent Plan → LangGraph Execution �
 | **Coordination** | MetaCoordinator | Query analysis, plan generation |
 | **Execution** | LangGraph | State management, parallel execution |
 | **Agents** | MetaAgentSystem | Agent orchestration, tool access |
+| **Observability** | Phoenix | LLM tracing, metrics, debugging |
 | **RAG** | Qdrant/Chroma | Vector search, document retrieval |
 
 ## Execution Flow
 
-```mermaid
-graph LR
-    Q[Query] --> MC[MetaCoordinator]
-    MC --> P[Plan]
-    P --> G[Build Graph]
-    G --> L0[Layer 0: Parallel]
-    L0 --> B[Barrier]
-    B --> L1[Layer 1: Dependent]
-    L1 --> O[Output]
+```text
+Query --> MetaCoordinator --> Plan --> Build Graph --> Layer 0 (Parallel) --> Barrier --> Layer 1 (Dependent) --> Output
 ```
 
 ## Key Concepts
@@ -128,6 +123,47 @@ Agents can also explicitly search via `search_knowledge_base` tool during execut
 - **Qdrant**: Production-ready, supports memory or server mode
 - **ChromaDB**: Lightweight alternative for local development
 - **Embeddings**: Ollama (local), OpenAI, or Voyage AI
+
+## Observability
+
+Magentic includes comprehensive observability via **Arize Phoenix** and **OpenTelemetry**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Magentic Application                      │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │ LangChain   │  │ LangGraph   │  │ Agent Executions    │  │
+│  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘  │
+│         └────────────────┴─────────────────────┘             │
+│                          │                                   │
+│              ┌───────────▼───────────┐                       │
+│              │ LangChainInstrumentor │                       │
+│              │   (OpenInference)     │                       │
+│              └───────────┬───────────┘                       │
+│                          │ OTLP/HTTP                         │
+└──────────────────────────┼───────────────────────────────────┘
+                           ▼
+               ┌───────────────────────┐
+               │     Phoenix Server    │
+               │   http://localhost:   │
+               │        6006           │
+               └───────────────────────┘
+```
+
+**Key Features:**
+- **Trace Visualization**: Complete execution flow per query
+- **Token Analysis**: Input/output tokens per LLM call
+- **Latency Metrics**: Identify slow agents or operations
+- **Error Tracking**: Debug failed executions
+
+**Configuration:**
+```bash
+PHOENIX_ENABLED=true   # Enable Phoenix (default: true if installed)
+PHOENIX_PORT=6006      # Phoenix UI port
+PHOENIX_GRPC_PORT=4317 # OpenTelemetry collector port
+```
+
+See [OBSERVABILITY.md](OBSERVABILITY.md) for detailed setup and usage.
 
 ## Persistence Layer
 

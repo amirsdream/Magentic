@@ -1,11 +1,45 @@
 # Documentation
 
+## Building Documentation
+
+This documentation uses [Sphinx](https://www.sphinx-doc.org/) with the Furo theme.
+
+### Quick Start
+
+```bash
+# Install documentation dependencies
+pip install -r docs/requirements-docs.txt
+
+# Build HTML documentation
+cd docs
+make html
+
+# View at docs/_build/html/index.html
+```
+
+### Live Reload (Development)
+
+```bash
+cd docs
+make livehtml
+# Opens at http://127.0.0.1:8000
+```
+
+### Output Formats
+
+```bash
+make html      # HTML website
+make latexpdf  # PDF (requires LaTeX)
+make epub      # ePub ebook
+```
+
 ## Guides
 
 | Document | Description |
 |----------|-------------|
 | [Architecture](ARCHITECTURE.md) | System design, execution flow, components |
 | [Authentication](AUTHENTICATION.md) | User auth, JWT tokens, usage stats |
+| [Observability](OBSERVABILITY.md) | Phoenix tracing, token tracking, logging |
 | [RAG & Tools](RAG_AND_TOOLS.md) | RAG setup, MCP integration |
 
 ## Quick Reference
@@ -58,6 +92,10 @@ OLLAMA_MODEL=llama3.2:1b
 
 # Authentication
 JWT_SECRET=your-secret       # Required for production
+
+# Observability
+PHOENIX_ENABLED=true
+PHOENIX_PORT=6006
 
 # Optional Features
 ENABLE_RAG=false

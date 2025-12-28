@@ -1,0 +1,18 @@
+# Documentation dependencies
+# Install with: pip install -r requirements-docs.txt
+
+# Sphinx core
+sphinx>=7.0.0
+sphinx-autobuild>=2024.0.0
+
+# Theme (Furo is modern and clean)
+furo>=2024.0.0
+
+# Markdown support
+myst-parser>=2.0.0
+
+# Additional extensions
+sphinx-copybutton>=0.5.0
+
+# For autodoc type hints
+sphinx-autodoc-typehints>=1.25.0

@@ -42,6 +42,7 @@ Magentic analyzes your questions and automatically creates an optimal network of
 - 🎨 **Modern Web UI** — Real-time execution visualization
 - 🔐 **User Auth** — JWT-based accounts with history, or guest mode
 - 📊 **Usage Tracking** — Real-time token usage and cost tracking per user
+- 🔭 **Observability** — Phoenix tracing with OpenTelemetry instrumentation
 - 🌓 **Dark/Light Mode** — Theme toggle with per-user persistence
 
 **Supported LLMs:** Ollama (local/free), OpenAI, Claude
@@ -109,6 +110,7 @@ UI_DISPLAY_LIMIT=200         # Max chars shown in UI per agent (default: 200)
 | **RAG Engine** | Qdrant/ChromaDB | Active retrieval: auto-injects relevant context into planning phase |
 | **Persistence** | SQLAlchemy + SQLite | Full conversation history, user profiles, usage stats, and session management |
 | **Usage Tracking** | Token Tracker | Per-query token counting and cost calculation by LLM provider |
+| **Observability** | Phoenix + OpenTelemetry | LLM tracing, latency metrics, execution debugging |
 | **State Management** | LangGraph State | Typed state with reducers, enabling complex multi-agent workflows |
 | **Real-time** | WebSocket | Live streaming of agent execution with token usage tracking |
 
@@ -134,8 +136,23 @@ WebSocket Stream → React UI
 |----------|-------------|
 | [Architecture](docs/ARCHITECTURE.md) | System design and components |
 | [Authentication](docs/AUTHENTICATION.md) | User auth and security |
+| [Observability](docs/OBSERVABILITY.md) | Phoenix tracing and monitoring |
 | [RAG & Tools](docs/RAG_AND_TOOLS.md) | RAG setup and MCP integration |
 | [Changelog](CHANGELOG.md) | Version history |
+
+### Build Docs Locally (Sphinx)
+
+```bash
+# Install doc dependencies
+pip install -r docs/requirements-docs.txt
+
+# Build HTML docs
+cd docs && make html
+
+# View at docs/_build/html/index.html
+# Or use live reload:
+make livehtml  # Opens at http://127.0.0.1:8000
+```
 
 ## Tech Stack
 
