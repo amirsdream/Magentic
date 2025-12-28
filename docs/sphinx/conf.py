@@ -83,8 +83,12 @@ suppress_warnings = [
     'autodoc.import_object',
     'autodoc',
     'toc.not_readable',
-    'duplicate.object',  # Duplicate descriptions from __init__.py re-exports
+    'app.add_directive',  # Duplicate directives
 ]
+
+# Ignore duplicate objects from __init__.py re-exports
+# These are already documented in their original modules
+nitpicky = False
 
 # Napoleon settings for Google-style docstrings
 napoleon_google_docstring = True
