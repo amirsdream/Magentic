@@ -1,0 +1,142 @@
+# ============================================================================
+# Magentic Deploy Pipeline
+# Deploy to staging/production environments
+# ============================================================================
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      version:
+        description: 'Version to deploy (e.g., v1.0.0 or latest)'
+        required: true
+        default: 'latest'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ============================================================================
+  # Validate Deployment
+  # ============================================================================
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.resolve.outputs.image_tag }}
+    steps:
+      - name: Resolve image tag
+        id: resolve
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [ "$VERSION" == "latest" ]; then
+            IMAGE_TAG="latest"
+          else
+            IMAGE_TAG="${VERSION#v}"
+          fi
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "📦 Deploying image tag: $IMAGE_TAG"
+
+      - name: Verify image exists
+        run: |
+          docker manifest inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.resolve.outputs.image_tag }} || {
+            echo "❌ Image not found: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.resolve.outputs.image_tag }}"
+            exit 1
+          }
+          echo "✓ Image verified"
+
+  # ============================================================================
+  # Deploy to Staging
+  # ============================================================================
+  deploy-staging:
+    name: Deploy to Staging
+    needs: validate
+    if: inputs.environment == 'staging'
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.magentic.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to staging
+        run: |
+          echo "🚀 Deploying to staging..."
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.image_tag }}"
+          # Add your deployment commands here
+          # Example: kubectl, docker-compose, terraform, etc.
+
+      - name: Verify deployment
+        run: |
+          echo "✓ Staging deployment completed"
+          # Add health check commands here
+
+      - name: Summary
+        run: |
+          echo "## 🎯 Staging Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: staging" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed by**: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Time**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # Deploy to Production
+  # ============================================================================
+  deploy-production:
+    name: Deploy to Production
+    needs: validate
+    if: inputs.environment == 'production'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://magentic.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pre-deployment checks
+        run: |
+          echo "🔍 Running pre-deployment checks..."
+          # Add pre-deployment validation here
+
+      - name: Deploy to production
+        run: |
+          echo "🚀 Deploying to production..."
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.image_tag }}"
+          # Add your deployment commands here
+
+      - name: Verify deployment
+        run: |
+          echo "✓ Production deployment completed"
+          # Add health check commands here
+
+      - name: Summary
+        run: |
+          echo "## 🎯 Production Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: production" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed by**: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Time**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # Post-deployment
+  # ============================================================================
+  notify:
+    name: Notify
+    needs: [validate, deploy-staging, deploy-production]
+    if: always() && (needs.deploy-staging.result == 'success' || needs.deploy-production.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send notification
+        run: |
+          echo "📢 Deployment notification sent"
+          # Add Slack/Discord/email notification here if needed

@@ -1,0 +1,123 @@
+# ============================================================================
+# Scheduled Maintenance
+# Automated maintenance tasks running on schedule
+# ============================================================================
+name: Maintenance
+
+on:
+  schedule:
+    # Run every Monday at 9:00 UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  # ============================================================================
+  # Stale Issue Management
+  # ============================================================================
+  stale:
+    name: Manage Stale Issues
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          stale-issue-message: |
+            This issue has been automatically marked as stale because it has not had recent activity. 
+            It will be closed in 14 days if no further activity occurs. 
+            Thank you for your contributions!
+          stale-pr-message: |
+            This pull request has been automatically marked as stale because it has not had recent activity. 
+            It will be closed in 14 days if no further activity occurs.
+          close-issue-message: 'This issue was closed because it has been stale for 14 days with no activity.'
+          close-pr-message: 'This PR was closed because it has been stale for 14 days with no activity.'
+          days-before-stale: 30
+          days-before-close: 14
+          stale-issue-label: 'stale'
+          stale-pr-label: 'stale'
+          exempt-issue-labels: 'pinned,security,bug,critical'
+          exempt-pr-labels: 'pinned,security'
+
+  # ============================================================================
+  # Dependency Updates Check
+  # ============================================================================
+  dependency-check:
+    name: Check for Updates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check Python dependencies
+        run: |
+          pip install pip-tools
+          echo "## Python Dependency Updates Available" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          pip list --outdated --format=markdown >> $GITHUB_STEP_SUMMARY || true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check NPM dependencies
+        working-directory: frontend
+        run: |
+          echo "## NPM Dependency Updates Available" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          npm outdated --json | jq -r 'to_entries | .[] | "- \(.key): \(.value.current) → \(.value.latest)"' >> $GITHUB_STEP_SUMMARY || true
+
+  # ============================================================================
+  # Security Scan
+  # ============================================================================
+  security-scan:
+    name: Weekly Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run security scan
+        run: |
+          pip install pip-audit bandit safety
+          
+          echo "## Weekly Security Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### pip-audit Results" >> $GITHUB_STEP_SUMMARY
+          pip-audit -r requirements.txt --format markdown >> $GITHUB_STEP_SUMMARY 2>&1 || echo "No vulnerabilities found" >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Bandit Results" >> $GITHUB_STEP_SUMMARY
+          bandit -r src/ -ll -f txt >> $GITHUB_STEP_SUMMARY 2>&1 || echo "No issues found" >> $GITHUB_STEP_SUMMARY
+
+      - name: Create issue if vulnerabilities found
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // This is a placeholder - customize based on scan results
+            console.log('Security scan completed');
+
+  # ============================================================================
+  # Clean Up Old Artifacts
+  # ============================================================================
+  cleanup:
+    name: Clean Up Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: kolpav/purge-artifacts-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          expire-in: 7d

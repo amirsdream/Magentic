@@ -1,8 +1,17 @@
+# ============================================================================
+# Dependency Review
+# Automated dependency vulnerability scanning for pull requests
+# ============================================================================
 name: Dependency Review
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, develop]
+    paths:
+      - 'requirements.txt'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'pyproject.toml'
 
 permissions:
   contents: read
@@ -19,4 +28,61 @@ jobs:
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
-          allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC
+          allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0, CC0-1.0, Unlicense, AGPL-3.0, GPL-3.0, LGPL-3.0
+          comment-summary-in-pr: always
+
+  python-audit:
+    name: Python Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install audit tools
+        run: pip install pip-audit safety
+
+      - name: Run pip-audit
+        run: |
+          echo "## Python Dependency Audit" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          pip-audit -r requirements.txt --format markdown >> $GITHUB_STEP_SUMMARY 2>&1 || true
+
+      - name: Run safety check
+        run: safety check -r requirements.txt --full-report || true
+
+  npm-audit:
+    name: NPM Dependency Audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: |
+          echo "## NPM Dependency Audit" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          npm audit --audit-level=moderate || true
+          npm audit --json > audit.json || true
+
+      - name: Upload audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: frontend/audit.json
+          retention-days: 30

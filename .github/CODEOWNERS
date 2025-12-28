@@ -1,0 +1,22 @@
+# ============================================================================
+# CODEOWNERS - Magentic
+# Defines code ownership for automated review requests
+# ============================================================================
+
+# Default owners for everything in the repo
+*                       @amirsdream
+
+# Frontend
+/frontend/              @amirsdream
+
+# Backend
+/src/                   @amirsdream
+
+# Infrastructure
+/docker/                @amirsdream
+/Dockerfile             @amirsdream
+/.github/               @amirsdream
+
+# Documentation
+/docs/                  @amirsdream
+*.md                    @amirsdream
