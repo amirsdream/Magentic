@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import json
@@ -814,10 +815,57 @@ async def execute_with_progress(
         plan: ExecutionPlan to use (same plan sent to frontend)
         cancel_event: Optional event to signal cancellation
     """
+    import queue
+    import threading
 
     # Helper to check if cancelled
     def is_cancelled():
         return cancel_event is not None and cancel_event.is_set()
+
+    # Set up log callback for streaming agent logs
+    # Use a thread-safe queue since executor runs in thread pool
+    log_queue = queue.Queue()
+    stop_log_consumer = threading.Event()
+    
+    async def log_consumer():
+        """Consume logs from the queue and send via WebSocket."""
+        while not stop_log_consumer.is_set():
+            try:
+                # Non-blocking check with small timeout
+                try:
+                    log_entry = log_queue.get(timeout=0.05)
+                except queue.Empty:
+                    await asyncio.sleep(0.01)  # Yield to event loop
+                    continue
+                
+                logger.info(f"📝 Sending agent_log: {log_entry['agent_id']} - {log_entry['log_type']}")
+                await websocket.send_json({
+                    "type": "agent_log",
+                    "data": log_entry,
+                })
+            except Exception as e:
+                logger.warning(f"Failed to send log: {e}")
+    
+    def log_callback(agent_id: str, log_type: str, content: str, metadata: Optional[Dict[str, Any]] = None):
+        """Queue log events for async sending - thread-safe."""
+        try:
+            log_entry = {
+                "agent_id": agent_id,
+                "log_type": log_type,
+                "content": content,
+                "metadata": metadata,
+                "timestamp": time.time() * 1000,  # JS-compatible timestamp
+            }
+            logger.info(f"📝 Log callback called: {agent_id} - {log_type}")
+            log_queue.put(log_entry)
+        except Exception as e:
+            logger.warning(f"Failed to queue log: {e}")
+    
+    # Set log callback on agent executor
+    meta_system.agent_executor.set_log_callback(log_callback)
+    
+    # Start log consumer task
+    log_consumer_task = asyncio.create_task(log_consumer())
 
     # Monkey-patch the meta_system to send updates
     original_execute = meta_system.execute_agent_for_langgraph
@@ -947,6 +995,28 @@ async def execute_with_progress(
         result = await executor.execute_query(query, plan=plan, cancel_event=cancel_event)
         return result
     finally:
+        # Stop log consumer and drain remaining logs
+        stop_log_consumer.set()
+        log_consumer_task.cancel()
+        try:
+            await log_consumer_task
+        except asyncio.CancelledError:
+            pass
+        
+        # Send any remaining logs in queue
+        while not log_queue.empty():
+            try:
+                log_entry = log_queue.get_nowait()
+                await websocket.send_json({
+                    "type": "agent_log",
+                    "data": log_entry,
+                })
+            except:
+                break
+        
+        # Clear log callback
+        meta_system.agent_executor.set_log_callback(None)
+        
         # Restore original method
         meta_system.execute_agent_for_langgraph = original_execute
 

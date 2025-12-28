@@ -258,7 +258,7 @@ function SettingsPanel({ isOpen, onClose }) {
                       Magnetic Agent Networks - Dynamic multi-agent system with LangGraph infrastructure.
                     </p>
                     <a
-                      href="https://github.com"
+                      href="https://github.com/amirsdream/Magentic"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-2 text-sm text-purple-600 dark:text-purple-400 hover:text-purple-500 dark:hover:text-purple-300"

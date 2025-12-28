@@ -12,6 +12,7 @@ export const WEBSOCKET_EVENTS = {
   STAGE: 'stage',
   PLAN: 'plan',
   AGENT_START: 'agent_start',
+  AGENT_LOG: 'agent_log',
   AGENT_COMPLETE: 'agent_complete',
   COMPLETE: 'complete',
   STOPPED: 'stopped',

@@ -205,6 +205,36 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
       });
       break;
 
+    case WEBSOCKET_EVENTS.AGENT_LOG:
+      // Handle streaming log entries for an agent
+      console.log('📝 AGENT_LOG received:', data.data);
+      setCurrentExecution((prev) => {
+        if (!prev?.agents) {
+          console.warn('No agents to update for log');
+          return prev;
+        }
+
+        const updatedAgents = prev.agents.map((agent) =>
+          agent.agent_id === data.data.agent_id
+            ? {
+                ...agent,
+                logs: [...(agent.logs || []), {
+                  timestamp: data.data.timestamp || Date.now(),
+                  type: data.data.log_type, // 'llm_start', 'llm_token', 'llm_end', 'tool_start', 'tool_end', 'info'
+                  content: data.data.content,
+                  metadata: data.data.metadata,
+                }],
+              }
+            : agent
+        );
+
+        return {
+          ...prev,
+          agents: updatedAgents,
+        };
+      });
+      break;
+
     case WEBSOCKET_EVENTS.COMPLETE:
       // Create a deep copy to preserve execution data
       const executionData = executionRef.current

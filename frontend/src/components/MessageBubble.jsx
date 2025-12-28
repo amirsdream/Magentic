@@ -20,7 +20,7 @@ import clsx from 'clsx';
 import { formatDistanceToNow } from 'date-fns';
 import ExecutionView from './ExecutionView';
 
-const MessageBubble = forwardRef(function MessageBubble({ message, messageId, toggleStep, expandedSteps, showExecutionDetails, onRegenerate, isLatestMessage, hasActiveExecution }, ref) {
+const MessageBubble = forwardRef(function MessageBubble({ message, messageId, toggleStep, expandedSteps, showExecutionDetails, onRegenerate, onRetry, isLatestMessage, hasActiveExecution }, ref) {
   const [copied, setCopied] = useState(false);
   const [feedback, setFeedback] = useState(null); // 'up' | 'down' | null
 
@@ -157,6 +157,7 @@ const MessageBubble = forwardRef(function MessageBubble({ message, messageId, to
             defaultExpanded={true}
             showAvatar={false}
             messageId={messageId}
+            onRetry={onRetry}
           />
         )}
 

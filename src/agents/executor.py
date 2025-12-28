@@ -80,6 +80,29 @@ class AgentExecutor:
         # Tool call limits (guardrails)
         self.max_tool_iterations = _config.max_tool_iterations
         self.max_tool_calls_per_agent = _config.max_tool_calls_per_agent
+        
+        # Log callback for streaming logs to UI
+        self._log_callback: Optional[Callable[[str, str, str, Optional[Dict[str, Any]]], None]] = None
+        self._current_agent_id: str = ""
+
+    def set_log_callback(self, callback: Optional[Callable[[str, str, str, Optional[Dict[str, Any]]], None]]) -> None:
+        """Set a callback to receive log events during execution.
+        
+        Args:
+            callback: Function(agent_id, log_type, content, metadata) called for each log event
+                     log_type can be: 'llm_start', 'llm_end', 'tool_start', 'tool_end', 'info'
+        """
+        self._log_callback = callback
+
+    def _emit_log(self, log_type: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Emit a log event to the registered callback."""
+        logger.info(f"📝 _emit_log called: agent={self._current_agent_id}, type={log_type}, callback={self._log_callback is not None}")
+        if self._log_callback and self._current_agent_id:
+            try:
+                self._log_callback(self._current_agent_id, log_type, content, metadata)
+                logger.info(f"📝 _emit_log callback invoked successfully")
+            except Exception as e:
+                logger.warning(f"Log callback failed: {e}")
 
     def _record_agent_start(self) -> float:
         """Record agent execution start for metrics."""
@@ -138,13 +161,27 @@ class AgentExecutor:
             LLM response
         """
         llm_to_use = llm or self.llm
+        
+        # Emit log for LLM start
+        model_name = getattr(llm_to_use, 'model_name', None) or getattr(llm_to_use, 'model', 'unknown')
+        last_msg = messages[-1].content if messages else ""
+        preview = last_msg[:100] + "..." if len(last_msg) > 100 else last_msg
+        self._emit_log('llm_start', f"Calling {model_name}...", {'preview': preview})
+        
         start_time = time.time()
         try:
             response = llm_to_use.invoke(messages, config=config)
-            self._record_llm_request(time.time() - start_time, True)
+            duration = time.time() - start_time
+            self._record_llm_request(duration, True)
+            
+            # Emit log for LLM end
+            response_preview = str(response.content)[:150] + "..." if len(str(response.content)) > 150 else str(response.content)
+            self._emit_log('llm_end', f"LLM responded ({duration:.1f}s)", {'preview': response_preview})
+            
             return response
         except Exception as e:
             self._record_llm_request(time.time() - start_time, False)
+            self._emit_log('error', f"LLM error: {str(e)[:100]}")
             if PROMETHEUS_AVAILABLE and record_error:
                 record_error(type(e).__name__, 'llm')
             raise
@@ -305,6 +342,12 @@ class AgentExecutor:
         agent_id: str = "",
     ) -> Dict[str, Any]:
         """Internal execute implementation."""
+        # Set current agent ID for logging
+        self._current_agent_id = agent_id
+        
+        # Emit agent execution start log
+        self._emit_log('info', f"Starting {role.name} agent", {'task': task[:100]})
+        
         # Build context
         context = self._build_context(original_query, previous_outputs, conversation_history)
 
@@ -699,19 +742,30 @@ IMPORTANT: Keep search queries short and focused."""
         for tool in role_tools:
             if tool.name == tool_name:
                 start_time = time.time()
+                # Emit tool start log
+                args_preview = str(tool_args)[:80] + "..." if len(str(tool_args)) > 80 else str(tool_args)
+                self._emit_log('tool_start', f"Calling tool: {tool_name}", {'args': args_preview})
+                
                 try:
                     logger.info(f"   └─ Executing {tool_name}...")
                     result = tool.invoke(tool_args)
                     duration = time.time() - start_time
                     self._record_tool_call(tool_name, duration, True)
+                    
+                    # Emit tool end log
+                    result_preview = str(result)[:100] + "..." if len(str(result)) > 100 else str(result)
+                    self._emit_log('tool_end', f"Tool {tool_name} completed ({duration:.1f}s)", {'result': result_preview})
+                    
                     return result
                 except Exception as e:
                     duration = time.time() - start_time
                     self._record_tool_call(tool_name, duration, False, type(e).__name__)
+                    self._emit_log('error', f"Tool {tool_name} failed: {str(e)[:80]}")
                     logger.error(f"   └─ Tool error: {e}")
                     return f"Error executing {tool_name}: {e}"
 
         logger.warning(f"   └─ Tool '{tool_name}' not found in role tools")
+        self._emit_log('warning', f"Tool '{tool_name}' not found")
         return None
 
     def _execute_without_tools(

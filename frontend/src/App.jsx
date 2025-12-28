@@ -24,7 +24,7 @@ import {
 import { useUIStore, useExecutionStore, useConnectionStore, useChatStore } from './store';
 
 function App() {
-  const { user, isAuthenticated, isGuest, loading } = useAuth();
+  const { user, isAuthenticated, isGuest, loading, updateProfile } = useAuth();
   
   // Memoize user data to prevent unnecessary re-renders
   const stableUser = useMemo(() => ({
@@ -160,10 +160,25 @@ function App() {
     setConnected(isConnected);
   }, [isConnected, setConnected]);
 
-  // Sync theme from user profile when first logged in (only once)
+  // Sync theme from user profile on initial login, but only if no local preference exists
   const [themeSynced, setThemeSynced] = React.useState(false);
   useEffect(() => {
     if (user?.theme && !themeSynced) {
+      // Check if there's a local theme preference - if so, use that instead
+      try {
+        const storedData = localStorage.getItem('magentic-ui-storage');
+        if (storedData) {
+          const parsed = JSON.parse(storedData);
+          // If local theme exists, don't override with backend theme
+          if (parsed?.state?.theme) {
+            setThemeSynced(true);
+            return;
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+      // No local preference, use backend theme
       setTheme(user.theme);
       setThemeSynced(true);
     }
@@ -312,6 +327,22 @@ function App() {
     const root = document.documentElement;
     root.classList.toggle('dark', theme === 'dark');
   }, [theme]);
+  
+  // Sync theme changes to backend (debounced to avoid excessive calls)
+  const lastSyncedTheme = useRef(null);
+  useEffect(() => {
+    // Only sync if authenticated (not guest) and theme actually changed
+    if (isAuthenticated && !isGuest && theme && theme !== lastSyncedTheme.current) {
+      lastSyncedTheme.current = theme;
+      // Debounce the update to avoid rapid calls during hydration
+      const timer = setTimeout(() => {
+        updateProfile({ theme }).catch(() => {
+          // Ignore errors - local storage is the primary source
+        });
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [theme, isAuthenticated, isGuest, updateProfile]);
 
   const isProcessing = !!currentExecution;
 
@@ -372,6 +403,7 @@ function App() {
                     expandedSteps={expandedSteps}
                     showExecutionDetails={showExecutionDetails}
                     onViewWorkflow={(execution) => setViewingExecution(execution)}
+                    onRetry={handleSend}
                     isLatestMessage={index === messages.length - 1}
                     hasActiveExecution={!!currentExecution}
                   />
@@ -389,6 +421,7 @@ function App() {
                     execution={currentExecution}
                     variant="auto"
                     showAvatar={true}
+                    onRetry={handleSend}
                   />
                 </motion.div>
               )}
