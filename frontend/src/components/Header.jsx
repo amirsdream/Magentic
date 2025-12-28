@@ -4,7 +4,7 @@
 
 import React, { memo, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles, Eye, EyeOff, Menu, PanelLeftClose } from 'lucide-react';
+import { Sparkles, Eye, EyeOff, Menu, PanelLeftClose, GitBranch } from 'lucide-react';
 
 // Memoized user button to prevent unnecessary re-renders
 const UserButton = memo(function UserButton({ user, isGuest, onClick }) {
@@ -55,6 +55,9 @@ function Header({
   onShowProfile,
   onToggleSidebar,
   sidebarOpen,
+  onToggleWorkflow,
+  showWorkflow,
+  hasActiveExecution,
 }) {
   return (
     <header className="sticky top-0 z-40 bg-white/80 dark:bg-gray-900/90 backdrop-blur-xl border-b border-slate-200/80 dark:border-purple-500/20 px-4 py-3 transition-colors duration-200">
@@ -93,6 +96,36 @@ function Header({
 
         {/* Right section - Controls with stable layout */}
         <div className="flex items-center gap-3">
+          {/* Toggle Workflow View */}
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={onToggleWorkflow}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all duration-200 ${
+              showWorkflow
+                ? 'bg-violet-500/20 dark:bg-purple-500/30 border-violet-500/50 dark:border-purple-500/50'
+                : 'bg-slate-100/80 dark:bg-gray-800/50 border-slate-200/50 dark:border-gray-700/50 hover:bg-violet-500/10 dark:hover:bg-purple-500/20 hover:border-violet-500/30 dark:hover:border-purple-500/30'
+            }`}
+            title={showWorkflow ? 'Hide workflow' : 'Show workflow'}
+          >
+            <GitBranch className={`w-4 h-4 ${
+              showWorkflow 
+                ? 'text-violet-600 dark:text-purple-400' 
+                : hasActiveExecution 
+                  ? 'text-emerald-500 dark:text-emerald-400' 
+                  : 'text-slate-400 dark:text-gray-500'
+            }`} />
+            <span className="text-xs font-medium text-slate-500 dark:text-gray-400 hidden sm:inline">
+              Flow
+            </span>
+            {hasActiveExecution && !showWorkflow && (
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+            )}
+          </motion.button>
+
           {/* Toggle Execution Details */}
           <motion.button
             whileHover={{ scale: 1.02 }}

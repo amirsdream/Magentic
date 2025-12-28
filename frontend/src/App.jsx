@@ -18,7 +18,8 @@ import {
   EnhancedChatInput,
   AgentFlowGraph,
   SettingsPanel,
-  ExecutionProgress,
+  ExecutionView,
+  WorkflowVisualization,
 } from './components';
 import { useUIStore, useExecutionStore, useConnectionStore, useChatStore } from './store';
 
@@ -41,6 +42,8 @@ function App() {
   // Local state for current session messages
   const [messages, setMessages] = useState([]);
   const [currentExecution, setCurrentExecution] = useState(null);
+  const [lastExecution, setLastExecution] = useState(null); // Keep last completed execution
+  const [viewingExecution, setViewingExecution] = useState(null); // For viewing past executions
   
   // Zustand stores for UI only
   const {
@@ -75,6 +78,24 @@ function App() {
 
   // Message handler for WebSocket
   const handleWebSocketMessage = useCallback((data) => {
+    // For stopped events, capture execution BEFORE processing clears it
+    let stoppedExecutionData = null;
+    if (data.type === 'stopped' && executionRef.current) {
+      // Capture and transform execution data immediately
+      stoppedExecutionData = JSON.parse(JSON.stringify(executionRef.current));
+      stoppedExecutionData.stage = 'stopped';
+      stoppedExecutionData.stageMessage = data.message || 'Execution stopped by user';
+      // Only mark running agents as stopped, pending stay grey
+      if (stoppedExecutionData.agents) {
+        stoppedExecutionData.agents = stoppedExecutionData.agents.map(agent => ({
+          ...agent,
+          status: agent.status === 'running'
+            ? 'stopped' 
+            : agent.status // Keep pending as pending (grey)
+        }));
+      }
+    }
+    
     processWebSocketMessage(data, setCurrentExecution, setMessages, executionRef);
     
     // Update execution store for visualization
@@ -95,6 +116,11 @@ function App() {
         executionData.token_usage = data.data.token_usage;
       }
       
+      // Save as last execution for quick access
+      if (executionData) {
+        setLastExecution(executionData);
+      }
+      
       addMessage({
         type: 'assistant',
         content: data.data.output,
@@ -102,7 +128,25 @@ function App() {
         timestamp: new Date(),
       }, username);
     }
-  }, [setExecution, user, addMessage]);
+    
+    // Save stopped execution to chat store (for backend persistence)
+    if (data.type === 'stopped') {
+      const username = user?.username || 'guest';
+      
+      // Save as last execution
+      if (stoppedExecutionData) {
+        setLastExecution(stoppedExecutionData);
+      }
+      
+      // Add message with captured execution data
+      addMessage({
+        type: 'assistant',
+        content: data.message || 'Execution stopped by user',
+        execution: stoppedExecutionData,
+        timestamp: new Date(),
+      }, username);
+    }
+  }, [setExecution, user, addMessage, setLastExecution]);
 
   // WebSocket connection
   const { isConnected, sendMessage } = useWebSocket(
@@ -153,7 +197,7 @@ function App() {
   const loadChatMessages = useChatStore((state) => state.loadChatMessages);
   const conversations = useChatStore((state) => state.conversations);
   
-  // Sync messages when conversation changes OR when conversations are first loaded
+  // Sync messages when conversation SWITCHES (not on every message add)
   useEffect(() => {
     // Skip if no active conversation
     if (!activeConversationId) {
@@ -174,15 +218,22 @@ function App() {
     if (isSwitch) {
       prevConversationIdRef.current = activeConversationId;
       setCurrentExecution(null); // Reset execution state for new/switched chat
-    }
-    
-    // If this is a synced conversation with messages that haven't been loaded, fetch from backend
-    if (activeConv.synced && activeConv.messageCount > 0 && activeConv.messages.length === 0) {
-      const username = user?.username || 'guest';
-      loadChatMessages(username, activeConversationId);
+      
+      // Only sync messages on conversation switch
+      if (activeConv.synced && activeConv.messageCount > 0 && activeConv.messages.length === 0) {
+        const username = user?.username || 'guest';
+        loadChatMessages(username, activeConversationId);
+        // Set empty messages immediately, they'll be updated when loadChatMessages completes
+        setMessages([]);
+      } else {
+        setMessages(activeConv.messages || []);
+      }
     } else {
-      // Use messages from store (either already loaded or local)
-      setMessages(activeConv.messages || []);
+      // If not a switch but messages were loaded from backend, sync them
+      // This handles the case when loadChatMessages completes asynchronously
+      if (activeConv.messages.length > 0 && messages.length === 0) {
+        setMessages(activeConv.messages);
+      }
     }
   }, [activeConversationId, conversations, user, loadChatMessages]);
 
@@ -228,6 +279,8 @@ function App() {
       isLoading: true,
       agents: [],
       plan: null,
+      query: content, // Include the user's query for history display
+      startedAt: new Date().toISOString(),
     });
 
     // Send to WebSocket with session_id for tracking
@@ -293,6 +346,9 @@ function App() {
           onShowProfile={() => setShowProfile(true)}
           onToggleSidebar={toggleSidebar}
           sidebarOpen={sidebarOpen}
+          onToggleWorkflow={toggleAgentFlow}
+          showWorkflow={showAgentFlow}
+          hasActiveExecution={!!currentExecution}
         />
 
         {/* Content Area with Agent Flow */}
@@ -315,21 +371,24 @@ function App() {
                     toggleStep={toggleStep}
                     expandedSteps={expandedSteps}
                     showExecutionDetails={showExecutionDetails}
+                    onViewWorkflow={(execution) => setViewingExecution(execution)}
+                    isLatestMessage={index === messages.length - 1}
+                    hasActiveExecution={!!currentExecution}
                   />
                 ))}
               </AnimatePresence>
 
-              {/* Single unified execution progress box */}
+              {/* Unified execution view - shows progress during execution, summary when complete */}
               {currentExecution && (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
                 >
-                  <ExecutionProgress
+                  <ExecutionView
                     execution={currentExecution}
-                    toggleStep={toggleStep}
-                    expandedSteps={expandedSteps}
+                    variant="auto"
+                    showAvatar={true}
                   />
                 </motion.div>
               )}
@@ -347,57 +406,56 @@ function App() {
             />
           </motion.div>
 
-          {/* Agent Flow Panel */}
+          {/* Workflow Visualization Panel - GitHub Actions style */}
           <AnimatePresence>
-            {showAgentFlow && currentExecution && (
+            {showAgentFlow && (
               <motion.div
                 initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 400, opacity: 1 }}
+                animate={{ width: 450, opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
                 transition={{ duration: 0.3, ease: 'easeInOut' }}
-                className="border-l border-gray-800 bg-gray-900/50 overflow-hidden"
+                className="border-l border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-gray-900/50 overflow-hidden"
               >
-                <div className="h-full flex flex-col">
-                  <div className="p-3 border-b border-gray-800 flex items-center justify-between">
-                    <h3 className="text-sm font-medium text-gray-300">Agent Flow</h3>
-                    <button
-                      onClick={toggleAgentFlow}
-                      className="p-1 hover:bg-gray-800 rounded text-gray-400 hover:text-gray-200"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                  <div className="flex-1">
-                    <AgentFlowGraph execution={currentExecution} />
-                  </div>
-                </div>
+                <WorkflowVisualization 
+                  execution={currentExecution || lastExecution} 
+                  executionHistory={messages
+                    .filter(m => m.type === 'assistant' && m.execution)
+                    .map((m, idx, arr) => {
+                      // Find the user message before this assistant message to get the query
+                      const msgIndex = messages.indexOf(m);
+                      const userMsg = messages.slice(0, msgIndex).reverse().find(msg => msg.type === 'user');
+                      return {
+                        ...m.execution,
+                        query: m.execution.query || userMsg?.content || `Execution #${arr.length - idx}`,
+                      };
+                    })
+                  }
+                  onSelectExecution={setViewingExecution}
+                  onClose={toggleAgentFlow}
+                  isPanel={true}
+                  isLive={!!currentExecution}
+                />
               </motion.div>
             )}
           </AnimatePresence>
         </div>
-
-        {/* Agent Flow Toggle Button */}
-        {currentExecution && !showAgentFlow && (
-          <motion.button
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="fixed bottom-24 right-6 p-3 bg-purple-600 hover:bg-purple-700 rounded-full shadow-lg text-white"
-            onClick={toggleAgentFlow}
-            title="Show Agent Flow"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-          </motion.button>
-        )}
       </div>
 
       {/* Modals */}
       <LoginModal isOpen={showLogin} onClose={() => setShowLogin(false)} />
       <ProfileModal isOpen={showProfile} onClose={() => setShowProfile(false)} />
       <SettingsPanel isOpen={settingsOpen} onClose={() => toggleSettings()} />
+      
+      {/* Past Execution Workflow Modal */}
+      <AnimatePresence>
+        {viewingExecution && (
+          <WorkflowVisualization
+            execution={viewingExecution}
+            onClose={() => setViewingExecution(null)}
+            isPanel={false}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

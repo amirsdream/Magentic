@@ -289,7 +289,11 @@ export const useUIStore = create(
       // View settings
       showExecutionDetails: true,
       showAgentGraph: false,
+      showAgentFlow: false,
       compactMode: false,
+      
+      // Settings panel
+      settingsOpen: false,
       
       // Expanded steps
       expandedSteps: new Set(),
@@ -298,6 +302,7 @@ export const useUIStore = create(
       toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
       setSidebarWidth: (width) => set({ sidebarWidth: width }),
+      toggleSettings: () => set((state) => ({ settingsOpen: !state.settingsOpen })),
       
       setTheme: (theme) => {
         // Update DOM
@@ -310,6 +315,7 @@ export const useUIStore = create(
       },
       toggleExecutionDetails: () => set((state) => ({ showExecutionDetails: !state.showExecutionDetails })),
       toggleAgentGraph: () => set((state) => ({ showAgentGraph: !state.showAgentGraph })),
+      toggleAgentFlow: () => set((state) => ({ showAgentFlow: !state.showAgentFlow })),
       toggleCompactMode: () => set((state) => ({ compactMode: !state.compactMode })),
       
       toggleStep: (key) => set((state) => {
@@ -326,13 +332,16 @@ export const useUIStore = create(
         showExecutionDetails: state.showExecutionDetails,
         compactMode: state.compactMode,
         sidebarWidth: state.sidebarWidth,
+        sidebarOpen: state.sidebarOpen,
       }),
       onRehydrateStorage: () => (state) => {
         // Apply theme to DOM after hydration from localStorage
-        if (state?.theme === 'dark') {
-          document.documentElement.classList.add('dark');
-        } else {
-          document.documentElement.classList.remove('dark');
+        if (state?.theme) {
+          if (state.theme === 'dark') {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
         }
       },
     }

@@ -74,6 +74,7 @@ RAG_QUERIES_TOTAL: Any = None
 RAG_DOCUMENTS_INDEXED: Any = None
 MCP_REQUESTS_TOTAL: Any = None
 MCP_REQUEST_DURATION: Any = None
+MCP_GATEWAY_UP: Any = None
 ERRORS_TOTAL: Any = None
 
 if PROMETHEUS_AVAILABLE and _Counter and _Histogram and _Gauge and _Info:
@@ -195,6 +196,10 @@ if PROMETHEUS_AVAILABLE and _Counter and _Histogram and _Gauge and _Info:
         'MCP request latency',
         ['server', 'tool'],
         buckets=[0.1, 0.5, 1, 2.5, 5, 10]
+    )
+    MCP_GATEWAY_UP = _Gauge(
+        'mcp_gateway_up',
+        'MCP Gateway status (1=up, 0=down)'
     )
     
     # Error tracking

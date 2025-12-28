@@ -2,32 +2,27 @@
  * Enhanced Message component with animations and modern design
  */
 import React, { useState, forwardRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import {
   User,
-  Bot,
   Copy,
   Check,
   ThumbsUp,
   ThumbsDown,
   RotateCcw,
   Sparkles,
-  ChevronDown,
-  ChevronUp,
   Clock,
-  Zap,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { formatDistanceToNow } from 'date-fns';
-import ExecutionSummary from './ExecutionSummary';
+import ExecutionView from './ExecutionView';
 
-const MessageBubble = forwardRef(function MessageBubble({ message, messageId, toggleStep, expandedSteps, showExecutionDetails, onRegenerate }, ref) {
+const MessageBubble = forwardRef(function MessageBubble({ message, messageId, toggleStep, expandedSteps, showExecutionDetails, onRegenerate, isLatestMessage, hasActiveExecution }, ref) {
   const [copied, setCopied] = useState(false);
   const [feedback, setFeedback] = useState(null); // 'up' | 'down' | null
-  const [showDetails, setShowDetails] = useState(true);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(message.content);
@@ -154,38 +149,15 @@ const MessageBubble = forwardRef(function MessageBubble({ message, messageId, to
       </div>
 
       <div className="flex-1 max-w-4xl space-y-3">
-        {/* Execution Summary */}
-        {message.execution && showExecutionDetails && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: showDetails ? 1 : 0.5, height: 'auto' }}
-            transition={{ duration: 0.2 }}
-          >
-            <button
-              onClick={() => setShowDetails(!showDetails)}
-              className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-300 mb-2 transition-colors"
-            >
-              {showDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-              <Zap className="w-3 h-3 text-yellow-400" />
-              {message.execution.plan?.total_agents || 0} agents • {message.execution.plan?.total_layers || 0} layers
-            </button>
-            <AnimatePresence>
-              {showDetails && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                >
-                  <ExecutionSummary
-                    execution={message.execution}
-                    messageId={messageId}
-                    toggleStep={toggleStep}
-                    expandedSteps={expandedSteps}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.div>
+        {/* Execution View - Skip for latest message when execution still active (avoid duplication) */}
+        {message.execution && showExecutionDetails && !(isLatestMessage && hasActiveExecution) && (
+          <ExecutionView
+            execution={message.execution}
+            variant="compact"
+            defaultExpanded={true}
+            showAvatar={false}
+            messageId={messageId}
+          />
         )}
 
         {/* Message Content */}

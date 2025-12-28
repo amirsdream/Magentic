@@ -3,6 +3,7 @@
 import asyncio
 import httpx
 import logging
+import time
 from typing import Dict, List, Any, Optional
 from functools import lru_cache
 
@@ -182,6 +183,11 @@ class MCPClient:
         Returns:
             Tool execution result
         """
+        # Import metrics lazily to avoid circular imports
+        from ..metrics import MCP_REQUESTS_TOTAL, MCP_REQUEST_DURATION, PROMETHEUS_AVAILABLE
+        
+        start_time = time.perf_counter()
+        success = False
         try:
             client = await self._get_client()
             response = await client.post(
@@ -196,6 +202,7 @@ class MCPClient:
                 raise Exception(f"Tool execution failed: {data}")
 
             logger.info(f"✓ Executed {server}.{tool}")
+            success = True
             return data.get("result")
 
         except httpx.HTTPStatusError as e:
@@ -205,6 +212,15 @@ class MCPClient:
         except Exception as e:
             logger.error(f"Tool execution failed: {e}")
             raise
+        finally:
+            # Record metrics (only if available)
+            if PROMETHEUS_AVAILABLE:
+                duration = time.perf_counter() - start_time
+                status = 'success' if success else 'error'
+                if MCP_REQUESTS_TOTAL:
+                    MCP_REQUESTS_TOTAL.labels(server=server, tool=tool, status=status).inc()
+                if MCP_REQUEST_DURATION:
+                    MCP_REQUEST_DURATION.labels(server=server, tool=tool).observe(duration)
 
     async def get_tools_for_role(self, role: str) -> List[Dict[str, Any]]:
         """Get appropriate tools for an agent role.

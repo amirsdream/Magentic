@@ -51,6 +51,60 @@ html.dark {
   }
 }
 
+/* Custom scrollbar styling - thin and subtle */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+}
+
+html.dark * {
+  scrollbar-color: rgba(75, 85, 99, 0.5) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+html.dark *::-webkit-scrollbar-thumb {
+  background: rgba(75, 85, 99, 0.5);
+}
+
+html.dark *::-webkit-scrollbar-thumb:hover {
+  background: rgba(107, 114, 128, 0.7);
+}
+
+/* Hide scrollbar until hover for panels */
+.scroll-on-hover {
+  scrollbar-width: none;
+}
+
+.scroll-on-hover::-webkit-scrollbar {
+  width: 0;
+}
+
+.scroll-on-hover:hover {
+  scrollbar-width: thin;
+}
+
+.scroll-on-hover:hover::-webkit-scrollbar {
+  width: 6px;
+}
+
 /* Markdown styling */
 .markdown-content {
   @apply text-gray-700;

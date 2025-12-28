@@ -115,7 +115,10 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
     case WEBSOCKET_EVENTS.PLAN:
       console.log('Plan received with agents:', data.data.agents);
       console.log('Agent IDs in plan:', data.data.agents.map(a => a.agent_id));
-      setCurrentExecution({
+      setCurrentExecution((prev) => ({
+        // Preserve query and startedAt from initial state
+        query: prev?.query,
+        startedAt: prev?.startedAt,
         stage: 'planned',
         plan: data.data,
         agents: data.data.agents.map((agent) => ({
@@ -123,7 +126,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
           status: AGENT_STATUS.PENDING,
         })),
         stageMessage: `Executing ${data.data.total_agents} agents across ${data.data.total_layers} layers`,
-      });
+      }));
       break;
 
     case WEBSOCKET_EVENTS.AGENT_START:
@@ -213,7 +216,21 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         executionData.token_usage = data.data.token_usage;
       }
 
-      // Add the assistant response message
+      // Mark execution as complete (keep it visible, don't swap components)
+      if (executionData) {
+        executionData.stage = 'complete';
+        executionData.output = data.data.output;
+      }
+
+      // Update current execution to complete state (smooth transition, no remount)
+      setCurrentExecution((prev) => ({
+        ...prev,
+        stage: 'complete',
+        token_usage: data.data.token_usage,
+        output: data.data.output,
+      }));
+
+      // Add the assistant response message (but execution view is already showing)
       setMessages((msgs) => [
         ...msgs,
         {
@@ -224,7 +241,8 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         },
       ]);
 
-      setCurrentExecution(null);
+      // Clear execution after delay - smooth transition complete
+      setTimeout(() => setCurrentExecution(null), 500);
       break;
 
     case WEBSOCKET_EVENTS.ERROR:
@@ -241,29 +259,40 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
       break;
 
     case WEBSOCKET_EVENTS.STOPPED:
-      // Mark all running/pending agents as stopped (if any)
+      // Create a deep copy to preserve execution data (similar to COMPLETE)
+      const stoppedExecutionData = executionRef.current
+        ? JSON.parse(JSON.stringify(executionRef.current))
+        : null;
+
+      // Mark as stopped - only running agents become stopped, pending stay pending (grey)
+      if (stoppedExecutionData) {
+        stoppedExecutionData.stage = 'stopped';
+        stoppedExecutionData.stageMessage = data.message || 'Execution stopped by user';
+        // Update agent statuses - only running becomes stopped, pending stays grey
+        if (stoppedExecutionData.agents) {
+          stoppedExecutionData.agents = stoppedExecutionData.agents.map((agent) => ({
+            ...agent,
+            status: agent.status === AGENT_STATUS.RUNNING
+              ? AGENT_STATUS.STOPPED
+              : agent.status, // Keep pending as pending (grey)
+          }));
+        }
+      }
+
+      // Update current execution to stopped state (smooth transition, no remount)
       setCurrentExecution((prev) => {
         if (!prev) {
-          // No execution was in progress, just return null
           console.log('Stop acknowledged - no active execution');
           return null;
         }
         
-        if (!prev.agents) {
-          // Execution started but no agents yet
-          return {
-            ...prev,
-            stage: 'stopped',
-            stageMessage: data.message || 'Execution stopped by user',
-          };
-        }
-        
-        const updatedAgents = prev.agents.map((agent) => ({
+        // Update agents - only running becomes stopped, pending stays grey
+        const updatedAgents = prev.agents?.map((agent) => ({
           ...agent,
-          status: agent.status === AGENT_STATUS.RUNNING || agent.status === AGENT_STATUS.PENDING
+          status: agent.status === AGENT_STATUS.RUNNING
             ? AGENT_STATUS.STOPPED
-            : agent.status,
-        }));
+            : agent.status, // Keep pending as pending (grey)
+        })) || [];
 
         return {
           ...prev,
@@ -273,22 +302,19 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         };
       });
 
-      // Add stopped message
-      setMessages((prev) => {
-        // Remove loading message if present
-        const filtered = prev.filter(m => !m.isLoading);
-        return [
-          ...filtered,
-          {
-            type: 'info',
-            content: data.message || 'Execution stopped by user',
-            timestamp: new Date(),
-          },
-        ];
-      });
+      // Add the stopped message (execution view is already showing)
+      setMessages((msgs) => [
+        ...msgs,
+        {
+          type: 'assistant',
+          content: data.message || 'Execution stopped by user',
+          execution: stoppedExecutionData,
+          timestamp: new Date(),
+        },
+      ]);
 
-      // Clear execution after a brief delay to show stopped state
-      setTimeout(() => setCurrentExecution(null), 1000);
+      // Clear execution after delay - smooth transition
+      setTimeout(() => setCurrentExecution(null), 500);
       break;
 
     default:

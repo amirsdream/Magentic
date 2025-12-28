@@ -6,7 +6,7 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import ExecutionSummary from './ExecutionSummary';
+import ExecutionView from './ExecutionView';
 
 function Message({ message, messageId, toggleStep, expandedSteps, showExecutionDetails }) {
   // User message
@@ -32,13 +32,14 @@ function Message({ message, messageId, toggleStep, expandedSteps, showExecutionD
   // Assistant message
   return (
     <div className="flex flex-col gap-2">
-      {/* Execution summary above the message */}
+      {/* Execution view - unified component */}
       {message.execution && showExecutionDetails && (
-        <ExecutionSummary
+        <ExecutionView
           execution={message.execution}
+          variant="compact"
+          defaultExpanded={false}
+          showAvatar={false}
           messageId={messageId}
-          toggleStep={toggleStep}
-          expandedSteps={expandedSteps}
         />
       )}
 

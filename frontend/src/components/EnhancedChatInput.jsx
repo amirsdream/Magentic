@@ -12,17 +12,19 @@ import {
   StopCircle,
   Loader2,
   Wand2,
-  Image,
-  FileText,
-  Globe,
+  Code,
+  Brain,
+  Lightbulb,
 } from 'lucide-react';
 import clsx from 'clsx';
 
 const SUGGESTIONS = [
-  { icon: Globe, text: 'Search the web for latest news about AI', color: 'text-blue-400' },
-  { icon: FileText, text: 'Analyze and summarize this document', color: 'text-green-400' },
-  { icon: Wand2, text: 'Help me write a creative story', color: 'text-purple-400' },
-  { icon: Image, text: 'Describe what you see in this image', color: 'text-pink-400' },
+  // Complex queries
+  { icon: Code, text: 'Build a REST API with authentication and database integration in Python', color: 'text-blue-400' },
+  { icon: Brain, text: 'Research and compare different machine learning frameworks for image classification', color: 'text-purple-400' },
+  // Simple queries
+  { icon: Lightbulb, text: 'Explain how async/await works in JavaScript', color: 'text-green-400' },
+  { icon: Wand2, text: 'Write a function to validate email addresses', color: 'text-pink-400' },
 ];
 
 function EnhancedChatInput({ 

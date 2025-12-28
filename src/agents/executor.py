@@ -76,6 +76,10 @@ class AgentExecutor:
         # Context limits from config
         self.context_limit = _config.agent_context_limit
         self.history_limit = _config.agent_history_limit
+        
+        # Tool call limits (guardrails)
+        self.max_tool_iterations = _config.max_tool_iterations
+        self.max_tool_calls_per_agent = _config.max_tool_calls_per_agent
 
     def _record_agent_start(self) -> float:
         """Record agent execution start for metrics."""
@@ -544,22 +548,97 @@ IMPORTANT: Keep search queries short and focused."""
         config: RunnableConfig,
         role_tools: List[BaseTool],
         agent_id: str = "",
+        max_tool_iterations: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Execute agent with standard tool calling."""
+        """Execute agent with standard tool calling and iteration loop.
+        
+        The agent can make multiple rounds of tool calls until it provides
+        a final answer or reaches max iterations/tool calls.
+        
+        Guardrails:
+        - max_tool_iterations: Max LLM response rounds (default from config)
+        - max_tool_calls_per_agent: Max total tool invocations (from config)
+        """
+        # Use config values as defaults
+        max_iterations = max_tool_iterations or self.max_tool_iterations
+        max_total_calls = self.max_tool_calls_per_agent
+        
         llm_with_tools = self.llm.bind_tools(role_tools)
         logger.info(
             f"🔧 {role.name} bound with {len(role_tools)} tools: {[t.name for t in role_tools[:5]]}..."
         )
+        logger.info(f"   └─ Guardrails: max {max_iterations} iterations, max {max_total_calls} tool calls")
 
-        response = self._invoke_llm([system_msg, task_msg], config, llm=llm_with_tools)
-        self._track_tokens(response, agent_id, role.name)  # Track token usage
+        all_tool_calls = []
+        total_tool_calls = 0
+        messages = [system_msg, task_msg]
+        iteration = 0
+        
+        for iteration in range(max_iterations):
+            response = self._invoke_llm(messages, config, llm=llm_with_tools)
+            self._track_tokens(response, agent_id, role.name)
 
-        if hasattr(response, "tool_calls") and response.tool_calls:
-            return self._process_tool_calls(
-                role, system_msg, task_msg, response, config, role_tools, agent_id
-            )
-
-        return {"content": str(response.content), "tool_calls": []}
+            # Check if agent wants to call tools
+            if hasattr(response, "tool_calls") and response.tool_calls:
+                num_calls = len(response.tool_calls)
+                logger.info(f"🔍 {role.name} iteration {iteration + 1}: calling {num_calls} tool(s)")
+                
+                # Check if we'd exceed max total tool calls
+                if total_tool_calls + num_calls > max_total_calls:
+                    remaining = max_total_calls - total_tool_calls
+                    logger.warning(
+                        f"⚠️ {role.name} tool call limit reached! "
+                        f"Requested {num_calls}, only {remaining} allowed (max {max_total_calls})"
+                    )
+                    if remaining <= 0:
+                        # No more calls allowed, force final answer
+                        break
+                    # Only process remaining allowed calls
+                    response.tool_calls = response.tool_calls[:remaining]
+                
+                tool_results = []
+                for tool_call in response.tool_calls:
+                    tool_name, tool_args = self._parse_tool_call(tool_call)
+                    all_tool_calls.append({"name": tool_name, "args": tool_args})
+                    total_tool_calls += 1
+                    logger.info(f"   └─ Tool [{total_tool_calls}/{max_total_calls}]: {tool_name}, Args: {tool_args}")
+                    
+                    result = self._execute_tool(tool_name, tool_args, role_tools)
+                    tool_results.append({
+                        "tool": tool_name,
+                        "result": result or "No result returned"
+                    })
+                
+                # Check if we hit the limit after processing
+                if total_tool_calls >= max_total_calls:
+                    logger.warning(f"⚠️ {role.name} reached max tool calls ({max_total_calls}), forcing final answer")
+                    tool_results_text = "\n\n".join([
+                        f"Tool '{r['tool']}' result:\n{r['result']}" 
+                        for r in tool_results
+                    ])
+                    messages.append(AIMessage(content=f"Tool calls completed. Results:\n\n{tool_results_text}"))
+                    break
+                
+                # Add tool results to message history for next iteration
+                tool_results_text = "\n\n".join([
+                    f"Tool '{r['tool']}' result:\n{r['result']}" 
+                    for r in tool_results
+                ])
+                messages.append(AIMessage(content=f"Tool calls completed. Results:\n\n{tool_results_text}"))
+                messages.append(HumanMessage(content="Continue with your task. If you need to use more tools, call them. If you have all the information needed, provide your final answer."))
+            else:
+                # No more tool calls - agent is done
+                logger.info(f"✅ {role.name} completed after {iteration + 1} iteration(s), {total_tool_calls} tool calls")
+                return {"content": str(response.content), "tool_calls": all_tool_calls}
+        
+        # Max iterations or tool calls reached - get final answer
+        logger.info(f"🔍 {role.name} reached limits (iter={iteration + 1}/{max_iterations}, tools={total_tool_calls}/{max_total_calls}), getting final answer")
+        final_response = self._invoke_llm(
+            messages + [HumanMessage(content="You have reached the tool call limit. Please provide your final answer now based on all the tool results above.")],
+            config,
+        )
+        self._track_tokens(final_response, agent_id, role.name)
+        return {"content": str(final_response.content), "tool_calls": all_tool_calls}
 
     def _process_tool_calls(
         self,

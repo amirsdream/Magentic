@@ -49,12 +49,64 @@ Magentic analyzes your questions and automatically creates an optimal network of
 
 ## Commands
 
+All management is done through `./magentic.sh`:
+
+### Setup & Full Stack
 ```bash
-./magentic.sh start     # Start all services
-./magentic.sh stop      # Stop all services
-./magentic.sh status    # Show service status
-./magentic.sh cli       # Interactive CLI mode
-./magentic.sh help      # All available commands
+./magentic.sh setup           # First-time setup (venv, deps, config)
+./magentic.sh start           # Start all services
+./magentic.sh stop            # Stop all services
+./magentic.sh restart         # Restart all services
+./magentic.sh status          # Show service status
+./magentic.sh remove          # Remove all resources and data
+```
+
+### Backend (API)
+```bash
+./magentic.sh cli             # Interactive CLI mode
+./magentic.sh api             # Start API server (port 8000)
+./magentic.sh api-stop        # Stop API server
+./magentic.sh api-restart     # Restart API server
+```
+
+### Frontend
+```bash
+./magentic.sh frontend        # Start frontend dev server (port 8081)
+./magentic.sh frontend-stop   # Stop frontend
+./magentic.sh frontend-restart # Restart frontend
+```
+
+### MCP (Docker Services)
+```bash
+./magentic.sh mcp             # Start MCP Docker services
+./magentic.sh mcp-stop        # Stop MCP services
+./magentic.sh mcp-restart     # Restart MCP services
+./magentic.sh mcp-status      # Show MCP status and health
+./magentic.sh mcp-logs        # Show all MCP logs
+./magentic.sh mcp-logs mcp-gateway  # Show specific service logs
+./magentic.sh mcp-build       # Build/rebuild MCP images
+./magentic.sh mcp-remove      # Remove MCP containers and data
+```
+
+### Observability (Prometheus, Grafana, Loki)
+```bash
+./magentic.sh metrics         # Start observability stack
+./magentic.sh metrics-stop    # Stop observability stack
+./magentic.sh metrics-restart # Restart observability stack
+./magentic.sh metrics-status  # Show observability status
+```
+
+### Database
+```bash
+./magentic.sh db-init         # Initialize/migrate database
+./magentic.sh db-reset        # Reset database (deletes all data)
+```
+
+### Utilities
+```bash
+./magentic.sh logs [service]  # Show logs (mcp|api|frontend)
+./magentic.sh health          # Check health of all services
+./magentic.sh help            # Show all commands
 ```
 
 ## Configuration

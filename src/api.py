@@ -172,11 +172,21 @@ async def startup_event():
                 logger.info(
                     f"✓ MCP Gateway ready: {healthy_servers}/{total_servers} servers healthy"
                 )
+                # Set MCP gateway metric
+                from .metrics import MCP_GATEWAY_UP
+                if MCP_GATEWAY_UP:
+                    MCP_GATEWAY_UP.set(1)
             else:
                 logger.warning("MCP Gateway health check failed")
+                from .metrics import MCP_GATEWAY_UP
+                if MCP_GATEWAY_UP:
+                    MCP_GATEWAY_UP.set(0)
                 mcp_client = None
         except Exception as e:
             logger.warning(f"MCP client initialization failed: {e}")
+            from .metrics import MCP_GATEWAY_UP
+            if MCP_GATEWAY_UP:
+                MCP_GATEWAY_UP.set(0)
             mcp_client = None
 
     # Initialize tools with RAG and MCP support

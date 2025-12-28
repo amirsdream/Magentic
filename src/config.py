@@ -77,6 +77,14 @@ class Config:
             os.getenv("MAX_TOTAL_DELEGATIONS", "20")
         )  # Max total delegations per query (across all depths)
 
+        # Tool call limits (guardrails to prevent runaway loops)
+        self.max_tool_iterations: int = int(
+            os.getenv("MAX_TOOL_ITERATIONS", "5")
+        )  # Max tool call iterations per agent (LLM response rounds)
+        self.max_tool_calls_per_agent: int = int(
+            os.getenv("MAX_TOOL_CALLS_PER_AGENT", "15")
+        )  # Max total tool calls per single agent execution
+
         # RAG settings
         self.enable_rag: bool = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
         self.rag_vector_store: str = os.getenv("RAG_VECTOR_STORE", "qdrant")
