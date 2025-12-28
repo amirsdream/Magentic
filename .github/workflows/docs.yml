@@ -31,13 +31,12 @@ jobs:
 
       - name: Install dependencies
         run: |
+          pip install -r requirements.txt
           pip install -r docs/sphinx/requirements-docs.txt
-          pip install -e .
 
       - name: Build Sphinx docs
-        run: |
-          cd docs/sphinx
-          make html
+        working-directory: docs/sphinx
+        run: make html
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

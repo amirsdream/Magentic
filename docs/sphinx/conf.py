@@ -52,13 +52,29 @@ autodoc_default_options = {
 }
 autodoc_typehints = 'description'
 autodoc_mock_imports = [
-    'phoenix', 'openinference', 'opentelemetry', 'langchain', 'langgraph',
-    'langchain_core', 'langchain_ollama', 'langchain_openai', 'langchain_anthropic',
-    'langchain_qdrant', 'langchain_community', 'langchain_text_splitters',
-    'fastapi', 'uvicorn', 'pydantic', 'sqlalchemy', 'aiosqlite',
-    'qdrant_client', 'chromadb', 'httpx', 'websockets', 'fastapi_users',
-    'fastapi_users_db_sqlalchemy', 'duckduckgo_search', 'sentence_transformers',
-    'prometheus_client', 'passlib', 'jwt', 'python_jose', 'bcrypt'
+    # Telemetry/observability
+    'phoenix', 'openinference', 'opentelemetry',
+    # LangChain ecosystem
+    'langchain', 'langgraph', 'langchain_core', 'langchain_ollama',
+    'langchain_openai', 'langchain_anthropic', 'langchain_qdrant',
+    'langchain_community', 'langchain_text_splitters',
+    # FastAPI ecosystem
+    'fastapi', 'uvicorn', 'pydantic', 'starlette',
+    'fastapi_users', 'fastapi_users_db_sqlalchemy',
+    # Database
+    'sqlalchemy', 'aiosqlite', 'alembic',
+    # Vector stores
+    'qdrant_client', 'chromadb', 'sentence_transformers',
+    # HTTP/WebSocket
+    'httpx', 'websockets', 'aiohttp',
+    # Auth
+    'passlib', 'jwt', 'python_jose', 'bcrypt', 'jose',
+    # Utilities
+    'dotenv', 'python_dotenv', 'duckduckgo_search',
+    # Metrics
+    'prometheus_client', 'prometheus_fastapi_instrumentator',
+    # MCP
+    'mcp', 'fastmcp',
 ]
 
 # Suppress warnings
