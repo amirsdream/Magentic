@@ -1,79 +1,68 @@
 # Documentation
 
-## Building Documentation
+## Building Docs
 
-This documentation uses [Sphinx](https://www.sphinx-doc.org/) with the Furo theme.
+Uses [Sphinx](https://www.sphinx-doc.org/) with Furo theme.
 
 ### Quick Start
 
 ```bash
-# Install documentation dependencies
 pip install -r docs/requirements-docs.txt
-
-# Build HTML documentation
-cd docs
-make html
-
-# View at docs/_build/html/index.html
+cd docs && make html
+# View: docs/_build/html/index.html
 ```
 
-### Live Reload (Development)
+### Live Reload
 
 ```bash
-cd docs
-make livehtml
-# Opens at http://127.0.0.1:8000
-```
-
-### Output Formats
-
-```bash
-make html      # HTML website
-make latexpdf  # PDF (requires LaTeX)
-make epub      # ePub ebook
+cd docs && make livehtml
+# Opens http://127.0.0.1:8000
 ```
 
 ## Guides
 
 | Document | Description |
 |----------|-------------|
-| [Architecture](ARCHITECTURE.md) | System design, execution flow, components |
-| [Authentication](AUTHENTICATION.md) | User auth, JWT tokens, usage stats |
-| [Observability](OBSERVABILITY.md) | Phoenix tracing, token tracking, logging |
+| [Architecture](ARCHITECTURE.md) | System design, execution flow |
+| [Authentication](AUTHENTICATION.md) | JWT auth, usage stats |
+| [Observability](OBSERVABILITY.md) | Prometheus, Grafana, Loki |
 | [RAG & Tools](RAG_AND_TOOLS.md) | RAG setup, MCP integration |
 
-## Quick Reference
+## API Reference
 
-### API Endpoints
+### Endpoints
 
 | Endpoint | Description |
 |----------|-------------|
 | `GET /health` | System status |
 | `WS /ws` | WebSocket for queries |
 | `POST /auth/register` | Create user |
-| `POST /auth/jwt/login` | Authenticate (returns JWT) |
-| `GET /auth/me` | Current user info |
-| `GET /auth/me/stats` | Usage stats (queries, tokens, cost) |
+| `POST /auth/jwt/login` | Login (returns JWT) |
+| `GET /auth/me` | Current user |
+| `GET /auth/me/stats` | Usage stats |
 | `GET /profile/{username}` | User profile |
 | `PUT /profile/{username}` | Update profile |
 
 ### WebSocket Protocol
 
-**Send query:**
+**Send:**
 ```json
 {"query": "What is Python?", "conversation_id": "uuid"}
 ```
 
-**Events received:**
-- `plan` — Execution plan with agents
-- `agent_start` — Agent began execution  
-- `agent_complete` — Agent finished with output and token usage
-- `complete` — Final response with total token usage
-- `error` — Error occurred
+**Receive:**
 
-### Usage Stats
+| Event | Description |
+|-------|-------------|
+| `plan` | Execution plan with agents |
+| `agent_start` | Agent began |
+| `agent_log` | Real-time activity log |
+| `agent_complete` | Agent finished |
+| `complete` | Final response |
+| `error` | Error occurred |
 
-Stats available via `/auth/me/stats`:
+### Stats Response
+
 ```json
 {
   "total_queries": 150,
@@ -83,24 +72,13 @@ Stats available via `/auth/me/stats`:
 }
 ```
 
-### Environment Variables
+## Environment Variables
 
-```bash
-# LLM Provider (required)
-LLM_PROVIDER=ollama          # ollama, openai, or claude
-OLLAMA_MODEL=llama3.2:1b
-
-# Authentication
-JWT_SECRET=your-secret       # Required for production
-
-# Observability
-PHOENIX_ENABLED=true
-PHOENIX_PORT=6006
-
-# Optional Features
-ENABLE_RAG=false
-ENABLE_MCP=false
-DEBUG_STATE=false
-```
-
-See main [README](../README.md) for quick start.
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LLM_PROVIDER` | ollama, openai, claude | `ollama` |
+| `OLLAMA_MODEL` | Model name | `llama3.2:1b` |
+| `JWT_SECRET` | Auth secret | Random |
+| `ENABLE_RAG` | Enable RAG | `false` |
+| `ENABLE_MCP` | Enable MCP | `false` |
+| `ENABLE_METRICS` | Enable Prometheus | `false` |

@@ -1,42 +1,43 @@
 # Installation Guide
 
-> **Recommended:** Use `./magentic.sh setup` for automated installation. This guide is for manual setup.
+> **Recommended:** Use `./magentic.sh setup` for automated installation.
 
 ## Prerequisites
 
-- **Python 3.10+**
-- **Node.js 18+** (for frontend)
+- **Python 3.11+**
+- **Node.js 18+** (frontend)
 - **Docker** (optional, for MCP services)
+
+## Quick Setup
+
+```bash
+git clone https://github.com/amirsdream/Magentic.git && cd Magentic
+chmod +x magentic.sh && ./magentic.sh setup
+./magentic.sh start
+```
 
 ## Manual Installation
 
-### 1. Clone and Setup Environment
+### 1. Environment Setup
 
 ```bash
-git clone <your-repo-url>
-cd test_langchain
-
-# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
-
-# Install dependencies
 pip install -r requirements.txt
 
-# Install frontend
 cd frontend && npm install && cd ..
 ```
 
-### 2. Configure Environment
+### 2. Configuration
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your LLM provider:
+Edit `.env`:
 
 ```bash
-# Ollama (free, local)
+# Ollama (default, free, local)
 LLM_PROVIDER=ollama
 OLLAMA_MODEL=llama3.2:1b
 
@@ -49,12 +50,10 @@ LLM_PROVIDER=claude
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### 3. Initialize Database
+### 3. Database
 
 ```bash
 alembic upgrade head
-# Optional: Create demo user (demo/demo123)
-python init_db.py --demo
 ```
 
 ### 4. Start Services
@@ -72,23 +71,23 @@ cd frontend && npm run dev
 
 Open http://localhost:3000
 
-## LLM Provider Setup
+## LLM Setup
 
-### Ollama (Recommended for local)
+### Ollama (Recommended)
 
 ```bash
-# Install Ollama: https://ollama.com
+# Install: https://ollama.com
 ollama pull llama3.2:1b
-ollama pull nomic-embed-text  # For RAG embeddings
+ollama pull nomic-embed-text  # For RAG
 ```
 
 ### OpenAI
 
-Get API key from https://platform.openai.com
+Get API key: https://platform.openai.com
 
 ### Claude
 
-Get API key from https://console.anthropic.com
+Get API key: https://console.anthropic.com
 
 ## Optional Features
 
@@ -99,51 +98,43 @@ ENABLE_RAG=true
 RAG_VECTOR_STORE=qdrant
 ```
 
-See [RAG & Tools Guide](docs/RAG_AND_TOOLS.md) for details.
+See [RAG & Tools](docs/RAG_AND_TOOLS.md).
 
 ### MCP (Model Context Protocol)
 
-Requires Docker:
 ```bash
 ./magentic.sh mcp
 ```
 
-See [RAG & Tools Guide](docs/RAG_AND_TOOLS.md) for MCP setup.
+### Observability
+
+```bash
+./magentic.sh metrics
+```
+
+Access Grafana at http://localhost:3001
 
 ## Environment Variables
 
-### Authentication
-```bash
-JWT_SECRET=your-secure-secret-key  # Required for production
-```
-
-If `JWT_SECRET` is not set, a random secret is generated at startup (tokens will be invalidated on restart).
-
-### Usage Tracking
-Token usage and cost are automatically tracked per user:
-- Stored in `user_profiles.total_tokens_used` and `total_cost`
-- Viewable in Profile modal or via `/auth/me/stats` endpoint
-- Cost calculation based on LLM provider pricing
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LLM_PROVIDER` | LLM provider | `ollama` |
+| `OLLAMA_MODEL` | Ollama model | `llama3.2:1b` |
+| `JWT_SECRET` | Auth secret (set in production) | Random |
+| `ENABLE_RAG` | Enable RAG | `false` |
+| `ENABLE_MCP` | Enable MCP | `false` |
+| `ENABLE_METRICS` | Enable Prometheus | `false` |
 
 ## Troubleshooting
 
-**Port already in use:**
+**Port in use:**
 ```bash
 ./magentic.sh stop
-# or manually: lsof -i :8000 | kill
 ```
 
 **Database issues:**
 ```bash
 ./magentic.sh db-reset
-# Or delete data/magentic.db and restart
-```
-
-**Missing columns after update:**
-Database migrations run automatically on startup. If issues persist:
-```bash
-rm data/magentic.db
-python -c "from src.database import run_migrations; run_migrations()"
 ```
 
 **Missing dependencies:**

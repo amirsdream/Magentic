@@ -20,9 +20,9 @@
   <g id="frontend">
     <rect x="50" y="60" width="250" height="100" fill="#e1f5ff" stroke="#01579b" stroke-width="2" rx="5"/>
     <text x="175" y="85" text-anchor="middle" class="box-title" fill="#01579b">Frontend Layer</text>
-    <text x="65" y="105" class="box-text">• React 18 Web UI</text>
-    <text x="65" y="125" class="box-text">• WebSocket Client</text>
-    <text x="65" y="145" class="box-text">• Dark/Light Theme Toggle</text>
+    <text x="65" y="105" class="box-text">• React 18 + Zustand</text>
+    <text x="65" y="125" class="box-text">• WebSocket + Streaming</text>
+    <text x="65" y="145" class="box-text">• TailwindCSS + Theming</text>
   </g>
   
   <!-- Authentication Layer -->
@@ -85,7 +85,7 @@
     <text x="1050" y="215" text-anchor="middle" class="box-title" fill="#004d40">LLM Providers</text>
     <text x="965" y="235" class="box-text">• Ollama (llama3.2)</text>
     <text x="965" y="255" class="box-text">• OpenAI (gpt-4o)</text>
-    <text x="965" y="275" class="box-text">• Claude (3.5 Sonnet)</text>
+    <text x="965" y="275" class="box-text">• Claude (Sonnet 4)</text>
   </g>
   
   <!-- Database Layer -->
@@ -220,7 +220,7 @@
     <text x="710" y="695" class="box-text">Token counts &amp; cost per query/user</text>
     
     <text x="700" y="720" class="box-text" font-weight="bold">✓ Real-time Streaming</text>
-    <text x="710" y="740" class="box-text">WebSocket updates to UI in real-time</text>
+    <text x="710" y="740" class="box-text">WebSocket updates &amp; streaming logs</text>
   </g>
   
   <!-- Footer -->

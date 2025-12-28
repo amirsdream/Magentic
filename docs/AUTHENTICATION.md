@@ -1,59 +1,67 @@
 # Authentication
 
+JWT-based authentication using FastAPI-Users with SQLite backend.
+
 ## Overview
 
-JWT-based authentication using FastAPI-Users with SQLite backend. Supports registered users and guest mode.
-
-## Auth System
-
-- **JWT Tokens** — Secure bearer tokens for API authentication
-- **Password Hashing** — bcrypt for secure password storage
-- **Guest Mode** — Temporary users with limited features (no history persistence)
-- **User Profiles** — Separate profile data linked by username
+| Feature | Description |
+|---------|-------------|
+| **JWT Tokens** | Secure bearer tokens |
+| **Password Hashing** | bcrypt |
+| **Guest Mode** | Temporary users (no persistence) |
+| **User Profiles** | Preferences and usage stats |
 
 ## Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/auth/register` | POST | Create account |
-| `/auth/jwt/login` | POST | Authenticate, returns JWT token |
-| `/auth/me` | GET | Get current user (requires auth) |
-| `/auth/me/stats` | GET | Get usage stats (queries, tokens, cost) |
+| `/auth/jwt/login` | POST | Login, returns JWT |
+| `/auth/me` | GET | Current user info |
+| `/auth/me/stats` | GET | Usage stats |
 | `/profile/{username}` | GET | Get profile |
 | `/profile/{username}` | PUT | Update profile |
 
-## User Model
+## Data Models
+
+### User (FastAPI-Users)
 
 ```python
-# FastAPI-Users (auth)
 User:
-  - id (UUID)
-  - email (unique)
-  - hashed_password
-  - is_active, is_verified, is_superuser
+  - id: UUID
+  - email: str (unique)
+  - hashed_password: str
+  - is_active, is_verified, is_superuser: bool
+```
 
-# UserProfile (app data)
+### UserProfile
+
+```python
 UserProfile:
-  - username (unique, derived from email)
-  - display_name
-  - avatar_emoji
-  - theme ("light" | "dark")
-  - is_guest
-  - total_tokens_used (accumulated)
-  - total_cost (accumulated)
+  - username: str (unique)
+  - display_name: str
+  - avatar_emoji: str
+  - theme: "light" | "dark"
+  - is_guest: bool
+  - total_tokens_used: int
+  - total_cost: float
 ```
 
 ## Usage Stats
 
-Stats are calculated from actual data:
-- **total_queries**: COUNT from conversations table
-- **total_agents_executed**: SUM(agents_used) from conversations
-- **total_tokens_used**: Accumulated per query from token tracker
-- **total_cost**: Accumulated per query based on LLM pricing
+Calculated from database:
 
-## Usage
+| Stat | Source |
+|------|--------|
+| `total_queries` | COUNT(conversations) |
+| `total_agents_executed` | SUM(agents_used) |
+| `total_tokens_used` | Accumulated per query |
+| `total_cost` | Accumulated per query |
+
+## Examples
 
 ### Register
+
 ```bash
 curl -X POST http://localhost:8000/auth/register \
   -H "Content-Type: application/json" \
@@ -61,38 +69,49 @@ curl -X POST http://localhost:8000/auth/register \
 ```
 
 ### Login
+
 ```bash
 curl -X POST http://localhost:8000/auth/jwt/login \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d 'username=alice@example.com&password=secret123'
-# Returns: {"access_token": "eyJ...", "token_type": "bearer"}
+
+# Response: {"access_token": "eyJ...", "token_type": "bearer"}
 ```
 
 ### Get Stats
+
 ```bash
 curl http://localhost:8000/auth/me/stats \
   -H "Authorization: Bearer <token>"
-# Returns: {"total_queries": 50, "total_agents_executed": 120, "total_tokens_used": 15000, "total_cost": 0.032}
+
+# Response:
+{
+  "total_queries": 50,
+  "total_agents_executed": 120,
+  "total_tokens_used": 15000,
+  "total_cost": 0.032
+}
 ```
 
-### Guest Mode
-Guests auto-created on WebSocket connect with `guest_` prefix. 
-- Conversations NOT persisted for guests
-- Upgrade to registered user to save history
+## Guest Mode
 
-## Environment Variables
+- Auto-created on WebSocket connect with `guest_` prefix
+- Conversations NOT persisted
+- Upgrade by registering with same email
+
+## Configuration
 
 ```bash
 JWT_SECRET=your-secret-key  # Required in production
 ```
 
-If not set, a random secret is generated (tokens invalidate on restart).
+If not set, random secret generated (tokens invalidate on restart).
 
 ## Database
 
 ```bash
-# Initialize tables
-python -c "from src.database import run_migrations; run_migrations()"
+# Initialize
+alembic upgrade head
 
 # Location
 data/magentic.db

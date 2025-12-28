@@ -1,33 +1,26 @@
-# RAG & Tools Guide
+# RAG & Tools
 
 ## RAG (Retrieval-Augmented Generation)
 
-### Overview
+Magentic supports two RAG modes:
 
-Magentic provides **two modes** of RAG integration:
-
-1. **Active RAG** (Automatic): Knowledge base context is automatically injected into the planning phase
-2. **Passive RAG** (Tool-based): Agents can explicitly search via `search_knowledge_base` tool
+| Mode | Description |
+|------|-------------|
+| **Active** | Automatic context injection before planning |
+| **Passive** | Agent tool calls during execution |
 
 ### Active RAG
 
-When RAG is enabled, every query automatically searches the knowledge base and injects relevant context before planning:
+Automatically searches knowledge base and enriches queries:
 
 ```
 Query → RAG Search → Enriched Query → MetaCoordinator → Better Plan
 ```
 
 **Benefits:**
-- Coordinator makes more informed decisions about which agents to spawn
-- Relevant context is available from the start (not discovered mid-execution)
-- No explicit tool call required
-
-**Configuration:**
-```bash
-# .env
-ENABLE_RAG=true
-# Active RAG uses: top 3 documents with relevance score >= 0.5
-```
+- Coordinator makes informed agent decisions
+- Context available from the start
+- No explicit tool call needed
 
 ### Setup
 
@@ -35,14 +28,13 @@ ENABLE_RAG=true
 # Install dependencies
 pip install qdrant-client chromadb sentence-transformers
 
-# Start Qdrant (optional, uses in-memory by default)
+# Optional: Start Qdrant server
 docker run -p 6333:6333 qdrant/qdrant
 ```
 
 ### Configuration
 
 ```bash
-# .env
 ENABLE_RAG=true
 RAG_VECTOR_STORE=qdrant          # or "chroma"
 RAG_EMBEDDING_MODEL=all-MiniLM-L6-v2
@@ -61,38 +53,49 @@ rag.add_documents([
 ])
 ```
 
-### Passive RAG (Tool)
+### Passive RAG
 
-Agents can also explicitly call the `search_knowledge_base` tool during execution to search for specific information.
+Agents call `search_knowledge_base` tool:
+
+```python
+# Agent can invoke:
+search_knowledge_base(query="specific topic")
+```
 
 ---
 
 ## MCP (Model Context Protocol)
 
+Extensible tool integration via Docker.
+
 ### Setup
 
 ```bash
 # Start MCP Gateway
-cd docker && docker-compose up -d mcp-gateway
+./magentic.sh mcp
+
+# Or manually
+cd docker && docker compose up -d mcp-gateway
 ```
 
 ### Configuration
 
 ```bash
-# .env
 MCP_ENABLED=true
 MCP_GATEWAY_URL=http://localhost:3100
 ```
 
-### Available MCP Services
+### Available Services
 
 | Service | Tools |
 |---------|-------|
-| filesystem | read_file, write_file, list_directory |
-| fetch | fetch_url |
-| memory | store, retrieve |
+| `filesystem` | read_file, write_file, list_directory |
+| `fetch` | fetch_url |
+| `memory` | store, retrieve |
+| `github` | GitHub API operations |
+| `web-search` | Web search |
 
-### Adding Custom MCP Servers
+### Adding Custom Servers
 
 Edit `docker/mcp-gateway/config.json`:
 
@@ -111,13 +114,30 @@ Edit `docker/mcp-gateway/config.json`:
 
 ## Tool Manager
 
-Tools are initialized in `ToolManager`:
+Tools initialized in `ToolManager`:
 
 ```python
 # Built-in tools
-- DuckDuckGoSearchRun    # Web search
-- search_knowledge_base  # RAG retrieval (if enabled)
-- MCP tools              # Dynamic from MCP gateway (if enabled)
+- DuckDuckGoSearchRun      # Web search
+- search_knowledge_base    # RAG (if enabled)
+- MCP tools                # Dynamic (if enabled)
 ```
 
-Agents automatically receive appropriate tools based on their role.
+Agents receive tools based on their role.
+
+---
+
+## Vector Stores
+
+| Store | Use Case |
+|-------|----------|
+| **Qdrant** | Production (memory or server mode) |
+| **ChromaDB** | Local development |
+
+### Embeddings
+
+| Provider | Model |
+|----------|-------|
+| Ollama | `nomic-embed-text` (local) |
+| OpenAI | `text-embedding-3-small` |
+| Voyage | `voyage-3` |

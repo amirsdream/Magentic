@@ -1,217 +1,168 @@
 # Magentic
 
-[![CI](https://github.com/amirsdream/magentic/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/amirsdream/magentic/actions/workflows/ci.yml)
+[![CI](https://github.com/amirsdream/Magentic/actions/workflows/ci.yml/badge.svg)](https://github.com/amirsdream/Magentic/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-Agent%20Orchestration-orange.svg)](https://github.com/langchain-ai/langgraph)
-[![React](https://img.shields.io/badge/React-18-61DAFB.svg?logo=react)](https://reactjs.org/)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker)](https://www.docker.com/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-Orchestration-orange.svg)](https://github.com/langchain-ai/langgraph)
+[![React 18](https://img.shields.io/badge/React-18-61DAFB.svg?logo=react)](https://reactjs.org/)
 
-**Magnetic Agent Networks** — Dynamic multi-agent AI system with parallel execution.
+**Dynamic multi-agent AI orchestration with parallel execution.**
 
-![MagenticUI Screenshot](assets/MagenticUI.png)
+![Magentic UI](assets/MagenticUI.png)
 
 ## Why Magentic?
 
-Traditional AI assistants use a single model for every task. Magentic takes a different approach: it acts as an **AI orchestrator** that understands your question, breaks it into components, and deploys the right combination of specialized agents to tackle each part. A research question might spawn a web researcher and an analyzer working in parallel; a coding task might use a planner, coder, and critic in sequence. This dynamic orchestration means you get expert-level responses without manually prompting different models—Magentic figures out the optimal strategy automatically and executes it efficiently using parallel processing.
+Traditional AI assistants use one model for every task. Magentic acts as an **AI orchestrator**—it analyzes your question, breaks it into components, and deploys specialized agents to tackle each part. A research question spawns researchers and analyzers working in parallel; a coding task uses a planner, coder, and critic in sequence. Dynamic orchestration delivers expert-level responses without manual prompt engineering.
 
 ## Quick Start
 
 ```bash
-# 1. Setup
-git clone <your-repo-url> && cd test_langchain
+git clone https://github.com/amirsdream/Magentic.git && cd Magentic
 chmod +x magentic.sh && ./magentic.sh setup
-
-# 2. Start all services
 ./magentic.sh start
-
-# 3. Open http://localhost:3000
+# Open http://localhost:3000
 ```
 
-> **CLI mode:** Run `./magentic.sh cli` for interactive terminal mode.
+## Features
 
-## What is Magentic?
+| Feature | Description |
+|---------|-------------|
+| 🤖 **Dynamic Planning** | AI creates optimal agent networks per query |
+| ⚡ **Parallel Execution** | Agents run simultaneously via LangGraph DAG |
+| 🔍 **Web Search** | Real-time information retrieval |
+| 📚 **RAG Support** | Query your own documents |
+| 🎨 **Real-time UI** | Live execution visualization with WebSocket streaming |
+| 🔐 **User Auth** | JWT authentication with conversation history |
+| 📊 **Usage Tracking** | Token usage and cost tracking per user |
+| 🔭 **Observability** | Prometheus, Grafana, Loki integration |
+| 🌓 **Theming** | Dark/light mode with persistence |
 
-Magentic analyzes your questions and automatically creates an optimal network of specialized AI agents. Simple questions use one agent; complex questions spawn multiple agents working in parallel.
-
-**Key Features:**
-- 🤖 **Dynamic Planning** — AI creates optimal agent networks per query
-- ⚡ **Parallel Execution** — Agents run simultaneously via LangGraph
-- 🔍 **Web Search** — Agents can search the web for current info
-- 📚 **RAG Support** — Query your own documents (optional)
-- 🎨 **Modern Web UI** — Real-time execution visualization
-- 🔐 **User Auth** — JWT-based accounts with history, or guest mode
-- 📊 **Usage Tracking** — Real-time token usage and cost tracking per user
-- 🔭 **Observability** — Prometheus metrics, Grafana dashboards, Loki logs
-- 🌓 **Dark/Light Mode** — Theme toggle with per-user persistence
-
-**Supported LLMs:** Ollama (local/free), OpenAI, Claude
+**Supported LLMs:** Ollama (local), OpenAI, Claude
 
 ## Commands
 
-All management is done through `./magentic.sh`:
-
-### Setup & Full Stack
 ```bash
-./magentic.sh setup           # First-time setup (venv, deps, config)
-./magentic.sh start           # Start all services
-./magentic.sh stop            # Stop all services
-./magentic.sh restart         # Restart all services
-./magentic.sh status          # Show service status
-./magentic.sh remove          # Remove all resources and data
+./magentic.sh setup      # First-time setup
+./magentic.sh start      # Start all services
+./magentic.sh stop       # Stop all services
+./magentic.sh status     # Show service status
+./magentic.sh cli        # Interactive CLI mode
+./magentic.sh help       # Show all commands
 ```
 
-### Backend (API)
-```bash
-./magentic.sh cli             # Interactive CLI mode
-./magentic.sh api             # Start API server (port 8000)
-./magentic.sh api-stop        # Stop API server
-./magentic.sh api-restart     # Restart API server
-```
+<details>
+<summary><b>All Commands</b></summary>
 
-### Frontend
-```bash
-./magentic.sh frontend        # Start frontend dev server (port 8081)
-./magentic.sh frontend-stop   # Stop frontend
-./magentic.sh frontend-restart # Restart frontend
-```
+| Command | Description |
+|---------|-------------|
+| `setup` | First-time setup (venv, deps, config) |
+| `start` | Start all services |
+| `stop` | Stop all services |
+| `restart` | Restart all services |
+| `status` | Show service status |
+| `remove` | Remove all resources |
+| `cli` | Interactive CLI mode |
+| `api` | Start API server (port 8000) |
+| `api-stop` | Stop API server |
+| `frontend` | Start frontend (port 8081) |
+| `frontend-stop` | Stop frontend |
+| `mcp` | Start MCP Docker services |
+| `mcp-stop` | Stop MCP services |
+| `mcp-logs` | Show MCP logs |
+| `metrics` | Start observability stack |
+| `metrics-stop` | Stop observability stack |
+| `db-init` | Initialize database |
+| `db-reset` | Reset database |
+| `health` | Check all services |
 
-### MCP (Docker Services)
-```bash
-./magentic.sh mcp             # Start MCP Docker services
-./magentic.sh mcp-stop        # Stop MCP services
-./magentic.sh mcp-restart     # Restart MCP services
-./magentic.sh mcp-status      # Show MCP status and health
-./magentic.sh mcp-logs        # Show all MCP logs
-./magentic.sh mcp-logs mcp-gateway  # Show specific service logs
-./magentic.sh mcp-build       # Build/rebuild MCP images
-./magentic.sh mcp-remove      # Remove MCP containers and data
-```
-
-### Observability (Prometheus, Grafana, Loki)
-```bash
-./magentic.sh metrics         # Start observability stack
-./magentic.sh metrics-stop    # Stop observability stack
-./magentic.sh metrics-restart # Restart observability stack
-./magentic.sh metrics-status  # Show observability status
-```
-
-### Database
-```bash
-./magentic.sh db-init         # Initialize/migrate database
-./magentic.sh db-reset        # Reset database (deletes all data)
-```
-
-### Utilities
-```bash
-./magentic.sh logs [service]  # Show logs (mcp|api|frontend)
-./magentic.sh health          # Check health of all services
-./magentic.sh help            # Show all commands
-```
+</details>
 
 ## Configuration
 
-Edit `.env` to configure your LLM:
+Edit `.env`:
 
 ```bash
-# Ollama (default, free, local)
-LLM_PROVIDER=ollama
+# LLM Provider (choose one)
+LLM_PROVIDER=ollama              # Default, free, local
 OLLAMA_MODEL=llama3.2:1b
 
-# OpenAI
-LLM_PROVIDER=openai
+LLM_PROVIDER=openai              # OpenAI
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o
 
-# Claude
-LLM_PROVIDER=claude
+LLM_PROVIDER=claude              # Anthropic Claude
 ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
-```
+ANTHROPIC_MODEL=claude-sonnet-4-20250514
 
-**Optional features:**
-```bash
-ENABLE_RAG=true              # Enable document retrieval
-ENABLE_MCP=true              # Enable MCP tools (requires Docker)
-DEBUG_STATE=true             # Enable debug visualization
-AGENT_CONTEXT_LIMIT=4000     # Max chars passed between agent layers (default: 4000)
-AGENT_HISTORY_LIMIT=500      # Max chars for conversation history preview (default: 500)
-UI_DISPLAY_LIMIT=200         # Max chars shown in UI per agent (default: 200)
+# Optional Features
+ENABLE_RAG=true                  # Document retrieval
+ENABLE_MCP=true                  # MCP tools (requires Docker)
+ENABLE_METRICS=true              # Prometheus metrics
 ```
 
 ## Agent Roles
 
 | Role | Description |
 |------|-------------|
-| **Researcher** | Searches the web for current information |
-| **Retriever** | Searches your knowledge base (RAG) |
-| **Analyzer** | Analyzes data and explains concepts |
-| **Planner** | Creates step-by-step plans |
-| **Writer** | Writes articles and documentation |
-| **Coder** | Generates and explains code |
-| **Critic** | Reviews and improves content |
-| **Synthesizer** | Combines multiple inputs into final output |
+| **Researcher** | Web search for current information |
+| **Retriever** | Knowledge base search (RAG) |
+| **Analyzer** | Data analysis and explanations |
+| **Planner** | Step-by-step planning |
+| **Writer** | Articles and documentation |
+| **Coder** | Code generation and explanation |
+| **Critic** | Review and improvement |
+| **Synthesizer** | Combine inputs into final output |
 
-## Architecture Highlights
-
-| Component | Technology | Description |
-|-----------|------------|-------------|
-| **Orchestration** | LangGraph | DAG-based execution with state management, checkpointing, and crash recovery |
-| **Authentication** | FastAPI-Users + JWT | Secure token-based auth with user profiles |
-| **MCP Gateway** | Docker + FastMCP | Model Context Protocol server for extensible tool integration |
-| **RAG Engine** | Qdrant/ChromaDB | Active retrieval: auto-injects relevant context into planning phase |
-| **Persistence** | SQLAlchemy + SQLite | Full conversation history, user profiles, usage stats, and session management |
-| **Usage Tracking** | Token Tracker | Per-query token counting and cost calculation by LLM provider |
-| **Observability** | Prometheus + Grafana | Metrics collection, dashboards, Loki log aggregation |
-| **State Management** | LangGraph State | Typed state with reducers, enabling complex multi-agent workflows |
-| **Real-time** | WebSocket | Live streaming of agent execution with token usage tracking |
-
-### Execution Flow
+## Architecture
 
 ```
-Query → RAG Context Injection → Meta-Coordinator → Execution Plan → LangGraph DAG
-                ↓
-Knowledge Base (auto-search) → Enriched Query
-                ↓
-Layer 0: [researcher_0, researcher_1] (parallel)
-                ↓ barrier
-Layer 1: [analyzer_2] (waits for layer 0)
-                ↓ barrier  
-Layer 2: [synthesizer_3] (final answer)
-                ↓
-WebSocket Stream → React UI
+Query → RAG Context → Meta-Coordinator → Execution Plan → LangGraph DAG
+                                              ↓
+                       Layer 0: [researcher_0, researcher_1] (parallel)
+                                              ↓ barrier
+                       Layer 1: [analyzer_2]
+                                              ↓ barrier
+                       Layer 2: [synthesizer_3] → Final Output
+                                              ↓
+                                    WebSocket → React UI
 ```
+
+| Component | Technology |
+|-----------|------------|
+| Orchestration | LangGraph (DAG, checkpointing) |
+| Backend | FastAPI + WebSocket |
+| Auth | FastAPI-Users + JWT |
+| Frontend | React 18 + Zustand + TailwindCSS |
+| Database | SQLAlchemy + SQLite |
+| RAG | Qdrant / ChromaDB |
+| MCP | Docker + FastMCP |
+| Observability | Prometheus + Grafana + Loki |
 
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [Architecture](docs/ARCHITECTURE.md) | System design and components |
-| [Authentication](docs/AUTHENTICATION.md) | User auth and security |
-| [Observability](docs/OBSERVABILITY.md) | Phoenix tracing and monitoring |
-| [RAG & Tools](docs/RAG_AND_TOOLS.md) | RAG setup and MCP integration |
-| [Changelog](CHANGELOG.md) | Version history |
+| [INSTALL.md](INSTALL.md) | Manual installation guide |
+| [Architecture](docs/ARCHITECTURE.md) | System design |
+| [Authentication](docs/AUTHENTICATION.md) | Auth and security |
+| [Observability](docs/OBSERVABILITY.md) | Monitoring setup |
+| [RAG & Tools](docs/RAG_AND_TOOLS.md) | RAG and MCP setup |
+| [CHANGELOG](CHANGELOG.md) | Version history |
 
-### Build Docs Locally (Sphinx)
+## Contributing
 
-```bash
-# Install doc dependencies
-pip install -r docs/requirements-docs.txt
-
-# Build HTML docs
-cd docs && make html
-
-# View at docs/_build/html/index.html
-# Or use live reload:
-make livehtml  # Opens at http://127.0.0.1:8000
-```
-
-## Tech Stack
-
-**Backend:** FastAPI, SQLAlchemy, LangGraph, SQLite  
-**Frontend:** React 18, Vite, Tailwind CSS  
-**LLMs:** Ollama, OpenAI, Claude
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing`)
+5. Open a Pull Request
 
 ## License
 
-AGPLv3 License - see [LICENSE](LICENSE)
+[AGPL-3.0](LICENSE) — Free to use, modify, and distribute with source code disclosure.
+
+## Links
+
+- 🐙 [GitHub](https://github.com/amirsdream/Magentic)
+- 📖 [Documentation](docs/README.md)
+- 🐛 [Issues](https://github.com/amirsdream/Magentic/issues)
