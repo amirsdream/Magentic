@@ -352,8 +352,8 @@
       },
       "targets": [
         {
-          "expr": "increase(llm_cost_dollars_total[5m])",
-          "legendFormat": "{{provider}}/{{model}}",
+          "expr": "sum(increase(llm_cost_dollars_total[5m]))",
+          "legendFormat": "Cost (5m)",
           "refId": "A"
         }
       ],

@@ -1,11 +1,15 @@
 # Environment files
 .env
 
-# Shared workspace
+# Shared workspace (created by magentic.sh setup)
 shared-workspace/
 
 # Docker volumes
 volumes/
+
+# Persistent data directory (created by magentic.sh)
+# All data is managed by ./magentic.sh mcp commands
+data/
 
 # Logs
 *.log

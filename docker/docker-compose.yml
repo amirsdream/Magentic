@@ -264,7 +264,10 @@ services:
       dockerfile: Dockerfile
     container_name: mcp-memory
     hostname: mcp-memory
+    volumes:
+      - mcp-memory-data:/data:rw
     environment:
+      - DATA_DIR=/data
       - DEFAULT_TTL=${DEFAULT_TTL:-3600}
       - MAX_KEYS_PER_NAMESPACE=${MAX_KEYS_PER_NAMESPACE:-10000}
       - MAX_VALUE_SIZE=${MAX_VALUE_SIZE:-1048576}
@@ -295,6 +298,7 @@ services:
     image: prom/prometheus:v2.48.0
     container_name: prometheus
     hostname: prometheus
+    user: root  # Run as root to avoid permission issues
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -302,7 +306,7 @@ services:
       - '--web.enable-lifecycle'
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
-      - prometheus-data:/prometheus
+      - prometheus-data:/prometheus:rw
     ports:
       - "9090:9090"
     networks:
@@ -327,10 +331,11 @@ services:
     image: grafana/loki:2.9.3
     container_name: loki
     hostname: loki
+    user: root  # Run as root to avoid permission issues
     command: -config.file=/etc/loki/loki-config.yml
     volumes:
       - ./observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro,z
-      - loki-data:/loki
+      - loki-data:/loki:rw
     ports:
       - "3100:3100"
     networks:
@@ -379,16 +384,18 @@ services:
     image: grafana/grafana:10.2.3
     container_name: grafana
     hostname: grafana
+    user: root  # Run as root to avoid permission issues
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-magentic123}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_INSTALL_PLUGINS=grafana-piechart-panel
+      - GF_PATHS_DATA=/var/lib/grafana
     volumes:
       - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro,z
       - ./observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro,z
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro,z
-      - grafana-data:/var/lib/grafana
+      - grafana-data:/var/lib/grafana:rw
     ports:
       - "3000:3000"
     networks:
@@ -437,6 +444,88 @@ services:
       - "com.mcp.service=cadvisor"
 
 # ============================================
+# Application Services (Production Mode)
+# ============================================
+
+  # Magentic Backend (FastAPI)
+  magentic-backend:
+    profiles: ["prod", "app"]
+    build:
+      context: ..
+      dockerfile: docker/backend/Dockerfile
+    container_name: magentic-backend
+    hostname: magentic-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - MAGENTIC_MODE=prod
+      - DATABASE_URL=sqlite:///./data/magentic.db
+      - MCP_GATEWAY_URL=http://mcp-gateway:8000
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - LLM_MODEL=${LLM_MODEL:-llama3.2}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ENABLE_METRICS=${ENABLE_METRICS:-false}
+    volumes:
+      - ./data/backend:/app/data:rw
+      - ../rag_data:/app/rag_data:rw
+    depends_on:
+      mcp-gateway:
+        condition: service_healthy
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    labels:
+      - "com.magentic.service=backend"
+      - "com.magentic.mode=prod"
+
+  # Magentic Frontend (React/Nginx)
+  magentic-frontend:
+    profiles: ["prod", "app"]
+    build:
+      context: ../frontend
+      dockerfile: ../docker/frontend/Dockerfile
+    container_name: magentic-frontend
+    hostname: magentic-frontend
+    ports:
+      - "8081:80"
+    depends_on:
+      magentic-backend:
+        condition: service_healthy
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+    labels:
+      - "com.magentic.service=frontend"
+      - "com.magentic.mode=prod"
+
+# ============================================
 # Networks
 # ============================================
 networks:
@@ -450,14 +539,14 @@ networks:
 # ============================================
 # Volumes
 # ============================================
+# Named volumes for services that need persistent storage
+# Named volumes work better with SELinux than bind mounts
 volumes:
-  shared-workspace:
-    driver: local
-  mcp-data:
-    driver: local
   prometheus-data:
-    driver: local
-  loki-data:
-    driver: local
+    name: magentic-prometheus-data
   grafana-data:
-    driver: local
+    name: magentic-grafana-data
+  loki-data:
+    name: magentic-loki-data
+  mcp-memory-data:
+    name: magentic-mcp-memory-data
