@@ -54,9 +54,16 @@ class RoleLibrary:
             ),
             "writer": AgentRole(
                 name="writer",
-                description="Writes content, summaries, documentation, and saves files",
+                description="Writes content, summaries, documentation, and articles. Can save files.",
                 capabilities=["writing", "summarization", "documentation", "file_operations"],
-                system_prompt="You are a writing specialist. Create clear, well-structured content tailored to the audience. Use file operations to save your work when requested.",
+                system_prompt="""You are a writing specialist. Create clear, well-structured content tailored to the audience.
+
+When asked to create a document or file:
+1. Write the content
+2. Save it using the filesystem tool (mcp_filesystem_write_file)
+3. Report what file you created
+
+If just asked for content without saving, return it directly.""",
                 needs_tools=True,
             ),
             "coder": AgentRole(
@@ -140,7 +147,7 @@ Always execute code to verify it works and show the output to the user.""",
             "researcher": "websearch, github, memory",
             "coder": "filesystem, github, python, database",
             "analyzer": "websearch, python, database, memory",
-            "writer": "filesystem, memory",
+            "writer": "filesystem",  # Writer can save files as artifacts
             "retriever": "filesystem, database, memory",
             "planner": "websearch, memory",
             "coordinator": "websearch, filesystem, github, memory",

@@ -8,7 +8,6 @@ import {
   Send,
   Sparkles,
   Paperclip,
-  Mic,
   StopCircle,
   Loader2,
   Wand2,
@@ -17,6 +16,7 @@ import {
   Lightbulb,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { useKnowledgeBaseStore } from '../store';
 
 const SUGGESTIONS = [
   // Complex queries
@@ -42,6 +42,10 @@ function EnhancedChatInput({
   const [isFocused, setIsFocused] = useState(false);
   const [rows, setRows] = useState(1);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
+  
+  // KB Store for file uploads
+  const uploadFiles = useKnowledgeBaseStore((state) => state.uploadFiles);
 
   // Determine if we're in controlled or uncontrolled mode
   const isControlled = controlledValue !== undefined;
@@ -98,6 +102,17 @@ function EnhancedChatInput({
     textareaRef.current?.focus();
   };
 
+  // File upload handler - delegates to global KB store
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      uploadFiles(files);
+    }
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
   const canSend = value.trim() && isConnected && !isExecuting;
 
   return (
@@ -129,30 +144,38 @@ function EnhancedChatInput({
         )}
       </AnimatePresence>
 
-      {/* Input Container */}
+      {/* Input Container - UX Best Practice: Clear visual container with adequate padding */}
       <motion.div
         animate={{
-          borderColor: isFocused ? 'rgba(139, 92, 246, 0.4)' : 'rgba(148, 163, 184, 0.3)',
+          borderColor: isFocused ? 'rgba(139, 92, 246, 0.5)' : 'rgba(148, 163, 184, 0.2)',
           boxShadow: isFocused
-            ? '0 0 25px rgba(139, 92, 246, 0.1)'
-            : '0 0 0 rgba(139, 92, 246, 0)',
+            ? '0 0 0 3px rgba(139, 92, 246, 0.1)'
+            : '0 1px 2px rgba(0, 0, 0, 0.05)',
         }}
-        className="relative bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl rounded-2xl border border-slate-200/80 dark:border-purple-500/20 transition-all duration-200"
+        className="relative bg-white dark:bg-gray-900 rounded-2xl border border-slate-200 dark:border-gray-700 transition-all duration-200"
       >
-        {/* Glow effect */}
-        <div className="absolute inset-0 bg-gradient-to-r from-violet-500/5 to-fuchsia-500/5 dark:from-purple-500/5 dark:to-pink-500/5 rounded-2xl" />
-
-        <div className="relative flex items-end gap-2 p-3">
-          {/* Attachment Button */}
+        <div className="flex items-end gap-2 px-4 py-3">
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".txt,.md,.pdf,.json,.csv,.py,.js,.ts,.html,.css"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+          
+          {/* Attachment Button - 44px touch target */}
           <button
-            className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-            title="Attach file"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center justify-center w-10 h-10 rounded-xl hover:bg-slate-100 dark:hover:bg-gray-800 text-slate-400 dark:text-gray-500 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
+            title="Upload documents to knowledge base"
           >
             <Paperclip className="w-5 h-5" />
           </button>
 
-          {/* Textarea */}
-          <div className="flex-1 relative">
+          {/* Textarea - 16px font size per UX best practices */}
+          <div className="flex-1 min-h-[44px] flex items-center">
             <textarea
               ref={textareaRef}
               value={value}
@@ -164,29 +187,21 @@ function EnhancedChatInput({
               disabled={isExecuting}
               rows={1}
               className={clsx(
-                'w-full bg-transparent text-gray-900 dark:text-white placeholder-gray-500 resize-none focus:outline-none',
+                'w-full bg-transparent text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 resize-none focus:outline-none',
                 'text-base leading-6 py-2',
                 isExecuting && 'cursor-not-allowed opacity-50'
               )}
-              style={{ maxHeight: '144px' }}
+              style={{ maxHeight: '150px' }}
             />
           </div>
 
-          {/* Voice Input Button */}
-          <button
-            className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-            title="Voice input"
-          >
-            <Mic className="w-5 h-5" />
-          </button>
-
-          {/* Send/Stop Button */}
+          {/* Send/Stop Button - 44px touch target */}
           {isExecuting ? (
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={onStop}
-              className="p-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-colors"
+              className="flex items-center justify-center w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-colors shadow-sm"
               title="Stop execution"
             >
               <StopCircle className="w-5 h-5" />
@@ -198,10 +213,10 @@ function EnhancedChatInput({
               onClick={handleSend}
               disabled={!canSend}
               className={clsx(
-                'p-2.5 rounded-xl transition-all duration-200',
+                'flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-200',
                 canSend
-                  ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-lg shadow-purple-500/25'
-                  : 'bg-slate-200 dark:bg-gray-800 text-slate-400 dark:text-gray-600 cursor-not-allowed'
+                  ? 'bg-violet-600 hover:bg-violet-500 text-white shadow-sm'
+                  : 'bg-slate-100 dark:bg-gray-800 text-slate-300 dark:text-gray-600 cursor-not-allowed'
               )}
               title="Send message"
             >
@@ -214,36 +229,34 @@ function EnhancedChatInput({
           )}
         </div>
 
-        {/* Character count / Status */}
-        <div className="flex items-center justify-between px-4 pb-2 text-xs">
-          <div className="flex items-center gap-2">
-            {!isConnected && (
-              <span className="text-yellow-600 dark:text-yellow-500 flex items-center gap-1">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                Connecting...
-              </span>
-            )}
-            {isExecuting && (
-              <span className="text-purple-600 dark:text-purple-400 flex items-center gap-1">
-                <Sparkles className="w-3 h-3 animate-pulse" />
-                Agents working...
+        {/* Status indicators - shown contextually */}
+        {((!isConnected) || isExecuting || value.length > 200) && (
+          <div className="flex items-center justify-between px-4 pb-2 text-xs text-slate-500 dark:text-gray-500">
+            <div className="flex items-center gap-2">
+              {!isConnected && (
+                <span className="text-amber-600 dark:text-amber-500 flex items-center gap-1.5">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Connecting...
+                </span>
+              )}
+              {isExecuting && (
+                <span className="text-violet-600 dark:text-violet-400 flex items-center gap-1.5">
+                  <Sparkles className="w-3 h-3 animate-pulse" />
+                  Agents working...
+                </span>
+              )}
+            </div>
+            {value.length > 200 && (
+              <span className={clsx(
+                'tabular-nums',
+                value.length > 4000 ? 'text-red-500' : ''
+              )}>
+                {value.length} / 4096
               </span>
             )}
           </div>
-          <span className={clsx(
-            'transition-colors',
-            value.length > 4000 ? 'text-red-500 dark:text-red-400' : 'text-gray-500 dark:text-gray-600'
-          )}>
-            {value.length > 0 && `${value.length} / 4096`}
-          </span>
-        </div>
+        )}
       </motion.div>
-
-      {/* Keyboard hint */}
-      <p className="text-center text-xs text-gray-500 dark:text-gray-600 mt-2">
-        Press <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-800 rounded text-gray-600 dark:text-gray-400">Enter</kbd> to send,{' '}
-        <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-800 rounded text-gray-600 dark:text-gray-400">Shift + Enter</kbd> for new line
-      </p>
     </div>
   );
 }

@@ -140,6 +140,7 @@ class MagenticGraphBuilder:
             agent_to_layer=self.agent_to_layer,
             messages=[],
             conversation_history=[],
+            available_artifacts={},
             session_id=session_id,
             start_time=datetime.now().isoformat(),
             final_output=None,

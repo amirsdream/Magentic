@@ -36,6 +36,8 @@ import {
   MessageSquare,
   Sparkles,
   CheckCircle2,
+  FileCode,
+  ArrowRight,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -320,6 +322,7 @@ function AgentDetailPanel({ agent, onClose }) {
   const totalTokens = tokenUsage.total_tokens || tokenUsage.totalTokens || (inputTokens + outputTokens);
   const cost = tokenUsage.total_cost || tokenUsage.totalCost || agent.cost || tokenUsage.cost || 0;
   const toolCalls = agent.tool_calls || agent.toolCalls || [];
+  const artifacts = agent.artifacts || [];
   
   // Format output for display
   const outputText = typeof agent.output === 'string' 
@@ -337,6 +340,7 @@ function AgentDetailPanel({ agent, onClose }) {
     { id: 'output', label: 'Output', count: outputText.length > 0 ? 1 : 0 },
     { id: 'logs', label: 'Activity', count: logs.length, live: isRunning },
     { id: 'tools', label: 'Tools', count: toolCalls.length },
+    { id: 'artifacts', label: 'Artifacts', count: artifacts.length },
   ];
 
   const modalContent = (
@@ -623,6 +627,23 @@ function AgentDetailPanel({ agent, onClose }) {
             )}
           </div>
         )}
+        
+        {activeTab === 'artifacts' && (
+          <div>
+            {artifacts.length > 0 ? (
+              <div className="space-y-2">
+                {artifacts.map((artifact, idx) => (
+                  <ArtifactDebugItem key={idx} artifact={artifact} />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-gray-600" />
+                <p className="text-sm text-slate-500 dark:text-gray-500">No artifacts created</p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       </div>
     </div>
@@ -630,6 +651,184 @@ function AgentDetailPanel({ agent, onClose }) {
   
   // Render modal in portal to document.body
   return createPortal(modalContent, document.body);
+}
+
+// Artifact Debug Item Component - shows artifact with debug gateway fetch
+function ArtifactDebugItem({ artifact }) {
+  const [expanded, setExpanded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [content, setContent] = useState(null);
+  const [error, setError] = useState(null);
+  
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const MCP_GATEWAY = import.meta.env.VITE_MCP_GATEWAY_URL || 'http://localhost:9000';
+  
+  const filename = artifact.name || artifact.path?.split('/').pop() || 'Unnamed file';
+  const filePath = artifact.path || '';
+  
+  // Load from MCP gateway directly (debug)
+  const loadFromGateway = async () => {
+    setLoading(true);
+    setError(null);
+    setContent(null);
+    
+    // Remove /workspace/ prefix for gateway
+    let gatewayPath = filePath;
+    if (gatewayPath.startsWith('/workspace/')) {
+      gatewayPath = gatewayPath.slice('/workspace/'.length);
+    }
+    
+    try {
+      const response = await fetch(`${MCP_GATEWAY}/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          server: 'filesystem',
+          tool: 'read_file',
+          params: { path: gatewayPath }
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok || !result.success) {
+        // Check for file not found errors
+        const errorMsg = result.error || result.detail || `Gateway error: ${response.status}`;
+        if (errorMsg.toLowerCase().includes('not found') || 
+            errorMsg.toLowerCase().includes('no such file') ||
+            response.status === 404) {
+          setError('file_not_found');
+        } else {
+          setError(errorMsg);
+        }
+        return;
+      }
+      
+      if (result.result?.content) {
+        setContent(result.result.content);
+      } else {
+        setError('No content returned');
+      }
+    } catch (err) {
+      // Network error or gateway unavailable
+      if (err.message.includes('fetch') || err.message.includes('network')) {
+        setError('gateway_unavailable');
+      } else {
+        setError(err.message);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  return (
+    <div className="bg-slate-50 dark:bg-gray-900/50 rounded-lg border border-slate-100 dark:border-gray-700/50 overflow-hidden">
+      <div className="flex items-center gap-3 p-3">
+        <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+          <FileText className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-slate-700 dark:text-gray-300 truncate">
+            {filename}
+          </p>
+          <p className="text-xs text-slate-500 dark:text-gray-500 truncate">
+            {filePath}
+          </p>
+        </div>
+        {artifact.language && (
+          <span className="text-xs px-2 py-0.5 bg-slate-200 dark:bg-gray-700 text-slate-600 dark:text-gray-400 rounded">
+            {artifact.language}
+          </span>
+        )}
+        <button
+          onClick={() => {
+            if (!expanded) loadFromGateway();
+            setExpanded(!expanded);
+          }}
+          className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-gray-700 transition-colors"
+          title="Debug: Load from MCP Gateway"
+        >
+          <ChevronDown className={clsx(
+            'w-4 h-4 text-slate-400 dark:text-gray-500 transition-transform',
+            expanded && 'rotate-180'
+          )} />
+        </button>
+      </div>
+      
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="border-t border-slate-100 dark:border-gray-700/50"
+          >
+            <div className="p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[10px] font-semibold text-orange-600 dark:text-orange-400 uppercase tracking-wide">
+                  Debug: MCP Gateway Content
+                </span>
+                <button
+                  onClick={loadFromGateway}
+                  disabled={loading}
+                  className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
+                >
+                  {loading ? 'Loading...' : 'Refresh'}
+                </button>
+              </div>
+              
+              {loading && (
+                <div className="flex items-center gap-2 py-4 justify-center">
+                  <div className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-xs text-slate-500">Fetching from gateway...</span>
+                </div>
+              )}
+              
+              {error === 'file_not_found' && (
+                <div className="text-xs bg-amber-50 dark:bg-amber-900/20 rounded p-3 border border-amber-200 dark:border-amber-800">
+                  <div className="flex items-start gap-2">
+                    <span className="text-amber-500">📁</span>
+                    <div>
+                      <p className="font-medium text-amber-700 dark:text-amber-400">File not on disk</p>
+                      <p className="text-amber-600 dark:text-amber-500 mt-1">
+                        This file was removed (docker cleanup). The content is still saved in the database and can be viewed via the artifact preview panel.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {error === 'gateway_unavailable' && (
+                <div className="text-xs bg-slate-100 dark:bg-slate-800 rounded p-3 border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-start gap-2">
+                    <span className="text-slate-400">🔌</span>
+                    <div>
+                      <p className="font-medium text-slate-600 dark:text-slate-400">Gateway unavailable</p>
+                      <p className="text-slate-500 dark:text-slate-500 mt-1">
+                        MCP Gateway is not running. Start docker services to access files on disk.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {error && error !== 'file_not_found' && error !== 'gateway_unavailable' && (
+                <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded p-2">
+                  ⚠️ {error}
+                </div>
+              )}
+              
+              {content && (
+                <pre className="text-xs text-slate-600 dark:text-gray-400 bg-white dark:bg-gray-800 rounded p-2 overflow-x-auto max-h-64 whitespace-pre-wrap">
+                  {content}
+                </pre>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 // Tool Call Detail Component
@@ -1096,7 +1295,7 @@ function WorkflowVisualization({
       )}>
         {/* Header */}
         <div className="flex-shrink-0 px-4 py-3 border-b border-slate-200 dark:border-gray-700/50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center">
             <div className="flex items-center gap-3">
               {showHistory ? (
                 <>
@@ -1273,7 +1472,7 @@ function WorkflowVisualization({
     <div className="h-full flex flex-col bg-slate-50 dark:bg-gray-900">
       {/* Header */}
       <div className="flex-shrink-0 px-4 py-3 border-b border-slate-200 dark:border-gray-700/50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center">
           <div className="flex items-center gap-3">
             {showHistory ? (
               <>

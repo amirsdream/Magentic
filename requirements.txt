@@ -40,14 +40,9 @@ ddgs>=1.6.0  # DuckDuckGo search (newer package)
 # ============================================================================
 # RAG Vector Stores
 # ============================================================================
-# Qdrant (recommended for production)
+# Qdrant (required for RAG)
 qdrant-client>=1.7.0
 langchain-qdrant>=0.1.0
-
-# ChromaDB (alternative vector store)
-# Note: Requires Python 3.10-3.13 (onnxruntime has no 3.14 wheels yet)
-chromadb>=0.4.0
-langchain-chroma>=0.1.0
 
 # ============================================================================
 # Multi-Agent & Workflow (LangGraph)
@@ -100,6 +95,11 @@ pydantic>=2.0.0
 # FastAPI Users - Complete auth solution
 fastapi-users[sqlalchemy]>=14.0.0
 aiosqlite>=0.20.0  # Async SQLite support
+
+# ============================================================================
+# Document Processing
+# ============================================================================
+pypdf>=4.0.0  # PDF text extraction for RAG uploads
 
 # ============================================================================
 # Development Tools (optional)

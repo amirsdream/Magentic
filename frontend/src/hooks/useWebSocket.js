@@ -191,6 +191,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
                 output_length: data.data.output_length,
                 tool_calls: data.data.tool_calls,
                 token_usage: data.data.token_usage,
+                artifacts: data.data.artifacts || [],
                 endTime: Date.now(),
               }
             : agent
@@ -260,13 +261,15 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         output: data.data.output,
       }));
 
-      // Add the assistant response message (but execution view is already showing)
+      // Add the assistant response message with references and artifacts
       setMessages((msgs) => [
         ...msgs,
         {
           type: 'assistant',
           content: data.data.output,
           execution: executionData,
+          references: data.data.references || [],
+          artifacts: data.data.artifacts || [],
           timestamp: new Date(),
         },
       ]);

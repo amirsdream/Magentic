@@ -96,7 +96,6 @@ async def main_async() -> int:
             console.print("[dim]📚 Initializing RAG service...[/dim]", end="")
             rag_service = RAGService(
                 persist_directory=config.rag_persist_directory,
-                vector_store=config.rag_vector_store,
                 qdrant_mode=config.rag_qdrant_mode,
                 qdrant_url=config.rag_qdrant_url,
                 qdrant_collection=config.rag_qdrant_collection,
@@ -108,7 +107,7 @@ async def main_async() -> int:
             )
             stats = rag_service.get_stats()
             console.print(
-                f"\r[green]✓ RAG service ready ({stats.get('vector_store', 'unknown')}): {stats.get('document_count', 0)} docs[/green]"
+                f"\r[green]✓ RAG service ready (Qdrant): {stats.get('document_count', 0)} docs[/green]"
             )
             logger.info(f"✓ RAG service initialized: {stats}")
         except Exception as e:

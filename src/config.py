@@ -85,9 +85,8 @@ class Config:
             os.getenv("MAX_TOOL_CALLS_PER_AGENT", "15")
         )  # Max total tool calls per single agent execution
 
-        # RAG settings
+        # RAG settings (Qdrant only)
         self.enable_rag: bool = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
-        self.rag_vector_store: str = os.getenv("RAG_VECTOR_STORE", "qdrant")
         self.rag_qdrant_mode: str = os.getenv("RAG_QDRANT_MODE", "memory")
         self.rag_qdrant_url: Optional[str] = os.getenv("RAG_QDRANT_URL")
         self.rag_qdrant_collection: str = os.getenv("RAG_QDRANT_COLLECTION", "knowledge_base")

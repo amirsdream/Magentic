@@ -2,6 +2,7 @@
 
 import os
 import logging
+import httpx
 from datetime import datetime
 from typing import Dict, Any, List, TYPE_CHECKING
 
@@ -9,6 +10,7 @@ from rich.console import Console
 
 from .state import MagenticState, visualize_state
 from ..config import Config
+from ..artifact_service import ArtifactService
 
 if TYPE_CHECKING:
     from ..agents.system import MetaAgentSystem
@@ -16,6 +18,64 @@ if TYPE_CHECKING:
 console = Console()
 logger = logging.getLogger(__name__)
 config = Config()
+
+# MCP Gateway URL for fetching file content
+MCP_GATEWAY_URL = os.getenv("MCP_GATEWAY_URL", "http://localhost:9000")
+
+
+async def save_artifact_to_db(session_id: str, agent_id: str, artifact: Dict[str, Any]) -> bool:
+    """Fetch artifact content from MCP filesystem and save to database.
+    
+    Args:
+        session_id: Execution session ID
+        agent_id: Agent that created the artifact
+        artifact: Artifact metadata dict
+        
+    Returns:
+        True if saved successfully, False otherwise
+    """
+    path = artifact.get("path", "")
+    if not path:
+        return False
+    
+    try:
+        # Fetch content from MCP filesystem
+        file_path = path
+        if file_path.startswith("/workspace/"):
+            file_path = file_path[len("/workspace/"):]
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{MCP_GATEWAY_URL}/execute",
+                json={
+                    "server": "filesystem",
+                    "tool": "read_file",
+                    "params": {"path": file_path}
+                }
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                content = result.get("result", {}).get("content", "")
+                
+                # Save to database
+                ArtifactService.save_artifact(
+                    session_id=session_id,
+                    agent_id=agent_id,
+                    name=artifact.get("name", path.split("/")[-1]),
+                    path=path,
+                    content=content,
+                    language=artifact.get("language"),
+                )
+                logger.info(f"Saved artifact {path} to database for session {session_id}")
+                return True
+            else:
+                logger.warning(f"Could not fetch artifact content for {path}: {response.status_code}")
+                return False
+                
+    except Exception as e:
+        logger.error(f"Error saving artifact {path} to database: {e}")
+        return False
 
 
 def create_agent_node(
@@ -80,6 +140,22 @@ def create_agent_node(
                     f"  [dim]Available outputs: {list(state['agent_outputs'].keys())}[/dim]"
                 )
 
+        # Add available artifacts to context if any exist
+        available_artifacts = state.get("available_artifacts", {})
+        if available_artifacts:
+            artifact_list = []
+            for path, artifact in available_artifacts.items():
+                artifact_list.append(f"  - {artifact.get('name', path)} ({artifact.get('language', 'file')}) at: {path}")
+            artifacts_context = "\n\n=== FILES CREATED BY PREVIOUS AGENTS ===\n"
+            artifacts_context += "The following files were created and are available for you to use:\n"
+            artifacts_context += "\n".join(artifact_list)
+            artifacts_context += "\n\nIMPORTANT: If your task requires using these files, you MUST read them using the filesystem tool:"
+            artifacts_context += "\n  - Use `mcp_filesystem_read_file` with the path above to read file contents"
+            artifacts_context += "\n  - Review the file contents before using or referencing them in your work"
+            artifacts_context += "\n======================================="
+            context_parts.append(artifacts_context)
+            console.print(f"  [yellow]✓ {len(available_artifacts)} artifact(s) available to this agent[/yellow]")
+
         context = "\n\n".join(context_parts)
         if len(context_parts) > 1:
             console.print(
@@ -114,6 +190,22 @@ def create_agent_node(
 
             console.print(f"[green]✓ {agent_id} completed ({len(output_content)} chars)[/green]")
 
+            # Extract references from the result
+            agent_references = result.get("references", []) if isinstance(result, dict) else []
+            if agent_references:
+                console.print(f"[cyan]   └─ Found {len(agent_references)} reference(s)[/cyan]")
+
+            # Extract artifacts (created files) from the result
+            agent_artifacts = result.get("artifacts", []) if isinstance(result, dict) else []
+            if agent_artifacts:
+                console.print(f"[yellow]   └─ Found {len(agent_artifacts)} artifact(s)[/yellow]")
+                
+                # Save artifacts to database for persistence
+                session_id = state.get("session_id", "")
+                if session_id:
+                    for artifact in agent_artifacts:
+                        await save_artifact_to_db(session_id, agent_id, artifact)
+
             conversation_entry = {
                 "agent_id": agent_id,
                 "role": role,
@@ -130,12 +222,22 @@ def create_agent_node(
                 ),
                 "layer": agent_layer,
                 "timestamp": datetime.now().isoformat(),
+                "references": agent_references,
+                "artifacts": agent_artifacts,
             }
+
+            # Build artifacts dict update (path -> artifact)
+            artifacts_update = {}
+            for artifact in agent_artifacts:
+                path = artifact.get("path") or artifact.get("name", "")
+                if path:
+                    artifacts_update[path] = artifact
 
             state_update = {
                 "agent_outputs": {agent_id: output_content},
                 "current_layer": agent_layer,
                 "conversation_history": [conversation_entry],
+                "available_artifacts": artifacts_update,
                 "execution_trace": [
                     {
                         "agent_id": agent_id,
@@ -144,6 +246,8 @@ def create_agent_node(
                         "timestamp": datetime.now().isoformat(),
                         "status": "completed",
                         "output_length": len(output_content),
+                        "references": agent_references,
+                        "artifacts": agent_artifacts,
                     }
                 ],
             }

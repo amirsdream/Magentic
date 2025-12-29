@@ -15,3 +15,4 @@ export { default as EnhancedChatInput } from './EnhancedChatInput.jsx';
 export { default as AgentFlowGraph } from './AgentFlowGraph.jsx';
 export { default as SettingsPanel } from './SettingsPanel.jsx';
 export { default as WorkflowVisualization } from './WorkflowVisualization.jsx';
+export { default as ArtifactPreviewPanel } from './ArtifactPreviewPanel.jsx';

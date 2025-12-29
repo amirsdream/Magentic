@@ -30,8 +30,9 @@ chmod +x magentic.sh && ./magentic.sh setup
 |---------|-------------|
 | 🤖 **Dynamic Planning** | AI creates optimal agent networks per query |
 | ⚡ **Parallel Execution** | Agents run simultaneously via LangGraph DAG |
-| 🔍 **Web Search** | Real-time information retrieval |
-| 📚 **RAG Support** | Query your own documents |
+| 🔍 **Web Search** | Real-time information retrieval with inline citations |
+| 📚 **RAG Support** | Query your own documents with Wikipedia-style references |
+| 📎 **Artifacts** | Claude-style preview panel for agent-created files |
 | 🎨 **Real-time UI** | Live execution visualization with WebSocket streaming |
 | 🔐 **User Auth** | JWT authentication with conversation history |
 | 📊 **Usage Tracking** | Token usage and cost tracking per user |
@@ -113,6 +114,16 @@ ENABLE_METRICS=true              # Prometheus metrics
 | **Coder** | Code generation and explanation |
 | **Critic** | Review and improvement |
 | **Synthesizer** | Combine inputs into final output |
+
+## Citations & Artifacts
+
+**Inline Citations**: Responses include Wikipedia-style numbered references `[1]`, `[2]` from RAG documents and web search results. Click any citation badge to see the source with title, snippet, and relevance score.
+
+**Artifacts Panel**: When agents create files (code, documents, etc.), they appear as downloadable artifacts. Click to open a Claude-style preview panel with:
+- Syntax-highlighted code view
+- HTML preview mode (for web files)
+- Copy to clipboard
+- One-click download
 
 ## Architecture
 

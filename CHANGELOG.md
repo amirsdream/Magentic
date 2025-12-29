@@ -2,9 +2,33 @@
 
 All notable changes to Magentic are documented here.
 
+## [1.4.0] - 2024-12-29
+
+### Added
+- **Inline Citations** — Wikipedia-style numbered references `[1]`, `[2]` from RAG and web search
+- **Citation Popovers** — Click citation badges to see source title, snippet, and relevance
+- **Artifacts System** — Track files created by agents during execution
+- **Artifact Preview Panel** — Claude-style slide-in panel for viewing created files
+- **Syntax Highlighting** — Code preview with language-aware highlighting
+- **HTML Preview Mode** — Preview HTML artifacts in iframe sandbox
+- **Real Upload Progress** — XMLHttpRequest-based progress bar for KB uploads
+
+### Changed
+- Writer role no longer automatically saves files to filesystem
+- Artifacts deduplicated by path (only latest version shown)
+- KB badge always visible when documents exist
+- References limited to top 8 most relevant with content previews
+
+### Technical
+- `_extract_artifacts_from_tool_output()` method in AgentExecutor
+- Artifact deduplication using path-keyed dictionary
+- MCP gateway `/execute` endpoint for artifact file retrieval
+- `ArtifactPreviewPanel.jsx` component with copy/download actions
+
 ## [1.3.0] - 2024-12-28
 
 ### Added
+- **Document Upload for RAG** — Upload documents to knowledge base via UI or API
 - **GitHub Pages Documentation** — Sphinx docs auto-deployed to GitHub Pages
 - **Swagger/OpenAPI Documentation** — Interactive API docs at `/docs` and `/redoc`
 - **Streaming Agent Logs** — Real-time activity logs in agent detail panel

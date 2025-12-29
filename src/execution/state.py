@@ -23,6 +23,7 @@ class MagenticState(TypedDict):
     - Checkpointing for crash recovery
     - Progress tracking and visualization
     - Message passing between agents
+    - Artifact sharing between agents
     """
 
     # Input
@@ -38,6 +39,7 @@ class MagenticState(TypedDict):
     # Agent communication
     messages: Annotated[List[BaseMessage], operator.add]  # For inter-agent messages
     conversation_history: Annotated[List[Dict[str, str]], operator.add]  # Chat history per step
+    available_artifacts: Annotated[Dict[str, Any], merge_dicts]  # Artifacts created by agents (path -> artifact)
 
     # Metadata
     session_id: str

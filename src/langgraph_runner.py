@@ -116,6 +116,35 @@ class LangGraphExecutor:
             last_agent_id = f"{agents[-1]['role']}_{len(agents)-1}"
             final_output = final_state.get("agent_outputs", {}).get(last_agent_id)
 
+        # Collect all references from execution trace
+        all_references = []
+        for trace in final_state.get("execution_trace", []):
+            refs = trace.get("references", [])
+            if refs:
+                all_references.extend(refs)
+        
+        # Also check conversation history for references
+        for entry in final_state.get("conversation_history", []):
+            refs = entry.get("references", [])
+            if refs:
+                for ref in refs:
+                    if ref not in all_references:
+                        all_references.append(ref)
+
+        # Collect all artifacts - deduplicate by path, keep latest version only
+        artifacts_by_path = {}
+        for trace in final_state.get("execution_trace", []):
+            for artifact in trace.get("artifacts", []):
+                path = artifact.get("path") or artifact.get("name", "")
+                if path:
+                    artifacts_by_path[path] = artifact
+        for entry in final_state.get("conversation_history", []):
+            for artifact in entry.get("artifacts", []):
+                path = artifact.get("path") or artifact.get("name", "")
+                if path:
+                    artifacts_by_path[path] = artifact
+        all_artifacts = list(artifacts_by_path.values())
+
         return {
             "session_id": final_state.get("session_id", "unknown"),
             "final_output": final_output or "No output generated",
@@ -124,6 +153,8 @@ class LangGraphExecutor:
             "agent_count": len(agents),
             "layer_count": len(plan.get_execution_layers()),
             "conversation_history": final_state.get("conversation_history", []),
+            "references": all_references,
+            "artifacts": all_artifacts,
         }
 
     async def _execute_streaming(
@@ -152,6 +183,8 @@ class LangGraphExecutor:
                 "agent_count": len(plan.agents),
                 "layer_count": len(plan.get_execution_layers()),
                 "conversation_history": [],
+                "references": [],
+                "artifacts": [],
             }
 
         # Extract final output
@@ -161,6 +194,35 @@ class LangGraphExecutor:
             last_agent_id = f"{agents[-1]['role']}_{len(agents)-1}"
             final_output = final_state.get("agent_outputs", {}).get(last_agent_id)
 
+        # Collect all references from execution trace
+        all_references = []
+        for trace in final_state.get("execution_trace", []):
+            refs = trace.get("references", [])
+            if refs:
+                all_references.extend(refs)
+        
+        # Also check conversation history for references
+        for entry in final_state.get("conversation_history", []):
+            refs = entry.get("references", [])
+            if refs:
+                for ref in refs:
+                    if ref not in all_references:
+                        all_references.append(ref)
+
+        # Collect all artifacts - deduplicate by path, keep latest version only
+        artifacts_by_path = {}
+        for trace in final_state.get("execution_trace", []):
+            for artifact in trace.get("artifacts", []):
+                path = artifact.get("path") or artifact.get("name", "")
+                if path:
+                    artifacts_by_path[path] = artifact
+        for entry in final_state.get("conversation_history", []):
+            for artifact in entry.get("artifacts", []):
+                path = artifact.get("path") or artifact.get("name", "")
+                if path:
+                    artifacts_by_path[path] = artifact
+        all_artifacts = list(artifacts_by_path.values())
+
         return {
             "session_id": final_state.get("session_id", initial_state["session_id"]),
             "final_output": final_output or "No output generated",
@@ -169,4 +231,6 @@ class LangGraphExecutor:
             "agent_count": len(agents),
             "layer_count": len(plan.get_execution_layers()),
             "conversation_history": final_state.get("conversation_history", []),
+            "references": all_references,
+            "artifacts": all_artifacts,
         }

@@ -421,12 +421,13 @@ class MetaAgentSystem:
         agent_number: int = 1,
         total_agents: int = 1,
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        input_artifacts: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Execute a single agent for LangGraph integration."""
         role_obj = self.role_library.get_role(role)
         if not role_obj:
             logger.error(f"Unknown role: {role}")
-            return {"content": f"[ERROR: Unknown role '{role}']", "tool_calls": []}
+            return {"content": f"[ERROR: Unknown role '{role}']", "tool_calls": [], "input_artifacts": input_artifacts or []}
 
         self.visualizer.display_execution_progress(
             current_step=agent_number,
@@ -458,6 +459,10 @@ class MetaAgentSystem:
             self.process_query,
             agent_id,  # Pass agent_id for token tracking
         )
+
+        # Add input_artifacts to result for tracking in UI
+        if isinstance(result, dict):
+            result["input_artifacts"] = input_artifacts or []
 
         logger.info(f"✅ {agent_id} ({role}) completed")
         return result

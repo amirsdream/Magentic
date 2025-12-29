@@ -15,7 +15,7 @@ ROLE_SERVER_MAPPING: Dict[str, List[str]] = {
     "researcher": ["websearch", "github", "memory"],
     "coder": ["filesystem", "github", "python", "database"],
     "analyzer": ["websearch", "python", "database", "memory"],
-    "writer": ["filesystem", "memory"],
+    "writer": [],  # Writer doesn't need tools - just returns content directly
     "retriever": ["filesystem", "database", "memory"],
     "planner": ["websearch", "memory"],
     "critic": ["memory"],

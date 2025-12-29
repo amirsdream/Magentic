@@ -121,6 +121,54 @@ Query → RAGService.get_relevant_context_for_planning() → Enriched Query
 
 Agents call `search_knowledge_base` tool during execution.
 
+### Inline Citations
+
+RAG and web search results are tracked as references and included in responses as Wikipedia-style numbered citations `[1]`, `[2]`. The LLM receives a citation guide instructing it to cite sources inline. Each citation badge is clickable, showing:
+- Source title and URL (for web)
+- Content snippet
+- Relevance score (for RAG)
+
+## Artifacts System
+
+When agents create files via MCP filesystem tools, they are tracked as **artifacts**:
+
+```
+Agent Executor → Tool Call (write_file) → Extract Artifact Metadata
+                              ↓
+              {path, name, language, type}
+                              ↓
+              Deduplicate by path (keep latest)
+                              ↓
+              WebSocket → Frontend Artifacts Panel
+```
+
+### Artifact Sharing Between Agents
+
+Artifacts are stored in shared state (`available_artifacts`) and passed to subsequent agents:
+
+```
+Layer 0: [coder_0] creates file.py
+              ↓
+         available_artifacts: {"/workspace/file.py": {...}}
+              ↓ barrier
+Layer 1: [tester_1] receives context:
+         "Available files created by previous agents:
+           - file.py (python) at: /workspace/file.py
+          You can read these files using the filesystem tool."
+```
+
+This enables workflows like:
+- Coder writes code → Tester reads and tests it
+- Writer creates document → Critic reviews it
+- Data engineer exports data → Analyzer processes it
+
+**Claude-style Preview Panel:**
+- Slide-in panel from right side
+- Fetches file content from MCP filesystem server
+- Syntax highlighting for code files
+- HTML preview mode for web files
+- Copy and download buttons
+
 ## Persistence
 
 ```
@@ -160,6 +208,9 @@ src/
 
 frontend/src/
 ├── components/      # UI components
+│   ├── MessageBubble.jsx      # Message with citations & artifacts
+│   ├── ArtifactPreviewPanel.jsx  # Claude-style file preview
+│   └── WorkflowVisualization.jsx # Execution flow graph
 ├── hooks/           # WebSocket, auth hooks
 ├── store/           # Zustand state
 └── contexts/        # React contexts

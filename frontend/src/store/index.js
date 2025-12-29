@@ -381,3 +381,124 @@ export const useConnectionStore = create((set) => ({
   setReconnecting: (reconnecting) => set({ reconnecting }),
   setError: (error) => set({ lastError: error }),
 }));
+
+// Knowledge Base Store - manages document uploads and KB state
+export const useKnowledgeBaseStore = create((set, get) => ({
+  sources: [],
+  isLoading: false,
+  uploadProgress: null, // { status: 'uploading' | 'success' | 'error', message: string, progress: number }
+  showPanel: false,
+
+  setShowPanel: (show) => set({ showPanel: show }),
+  togglePanel: () => set((state) => ({ showPanel: !state.showPanel })),
+
+  fetchSources: async () => {
+    set({ isLoading: true });
+    try {
+      const response = await fetch(`${API_URL}/documents/sources`);
+      const data = await response.json();
+      if (response.ok) {
+        set({ sources: data.sources || [] });
+      }
+    } catch (error) {
+      console.error('Failed to fetch KB sources:', error);
+    }
+    set({ isLoading: false });
+  },
+
+  deleteSource: async (source) => {
+    try {
+      const response = await fetch(`${API_URL}/documents/${encodeURIComponent(source)}`, {
+        method: 'DELETE',
+      });
+      if (response.ok) {
+        set((state) => ({ sources: state.sources.filter(s => s !== source) }));
+        return true;
+      }
+    } catch (error) {
+      console.error('Failed to delete source:', error);
+    }
+    return false;
+  },
+
+  uploadFiles: async (files) => {
+    if (!files || files.length === 0) return;
+
+    set({ uploadProgress: { status: 'uploading', message: 'Uploading...', progress: 0 } });
+
+    try {
+      const formData = new FormData();
+      let endpoint = '';
+      
+      if (files.length === 1) {
+        formData.append('file', files[0]);
+        endpoint = `${API_URL}/documents/upload`;
+      } else {
+        files.forEach(file => formData.append('files', file));
+        endpoint = `${API_URL}/documents/upload-multiple`;
+      }
+
+      // Use XMLHttpRequest for real progress tracking
+      const result = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) {
+            // Upload progress is 0-80%, processing is 80-100%
+            const percent = Math.round((event.loaded / event.total) * 80);
+            set({ uploadProgress: { status: 'uploading', message: 'Uploading...', progress: percent } });
+          }
+        });
+        
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              resolve(JSON.parse(xhr.responseText));
+            } catch (e) {
+              reject(new Error('Invalid response'));
+            }
+          } else {
+            try {
+              const errData = JSON.parse(xhr.responseText);
+              reject(new Error(errData.detail || 'Upload failed'));
+            } catch (e) {
+              reject(new Error('Upload failed'));
+            }
+          }
+        });
+        
+        xhr.addEventListener('error', () => reject(new Error('Network error')));
+        xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
+        
+        // Show processing state once upload completes
+        xhr.upload.addEventListener('loadend', () => {
+          set({ uploadProgress: { status: 'uploading', message: 'Processing...', progress: 85 } });
+        });
+        
+        xhr.open('POST', endpoint);
+        xhr.send(formData);
+      });
+
+      const data = result;
+      if (data.success || data.successful > 0) {
+        const msg = files.length === 1
+          ? `${data.filename} added to knowledge base`
+          : `${data.successful} file(s) added to knowledge base`;
+        set({ uploadProgress: { status: 'success', message: msg, progress: 100 } });
+        // Refresh sources
+        get().fetchSources();
+      } else {
+        set({ uploadProgress: { status: 'error', message: data.detail || 'Upload failed', progress: 0 } });
+      }
+    } catch (error) {
+      set({ uploadProgress: { status: 'error', message: error.message || 'Upload failed', progress: 0 } });
+    }
+
+    // Clear progress after delay
+    setTimeout(() => {
+      set({ uploadProgress: null });
+    }, 3000);
+  },
+
+  clearProgress: () => set({ uploadProgress: null }),
+}));

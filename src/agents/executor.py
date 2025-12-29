@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Dict, Any, List, Optional, Callable, TYPE_CHECKING
 
@@ -202,6 +203,246 @@ class AgentExecutor:
             return tracker.add_agent_usage(agent_id, role, response)
         return tracker.extract_usage_from_response(response)
 
+    def _extract_references_from_tool_output(self, tool_name: str, output: str) -> List[Dict[str, Any]]:
+        """Extract references from tool output.
+        
+        Args:
+            tool_name: Name of the tool that produced the output
+            output: Tool output string
+            
+        Returns:
+            List of reference dictionaries with type, source, title, url, snippet
+            Limited to top 5-8 most relevant chunks
+        """
+        references = []
+        
+        if not output:
+            return references
+            
+        # Extract RAG/Knowledge Base references
+        if "knowledge_base" in tool_name.lower() or "search_knowledge_base" in tool_name.lower():
+            # Pattern: [Document N] (relevance: X.XXX, source: filename)
+            rag_pattern = r'\[Document \d+\] \(relevance: ([\d.]+), source: ([^)]+)\)\n(.*?)(?=\n\n\[Document|\Z)'
+            matches = re.findall(rag_pattern, output, re.DOTALL)
+            
+            all_refs = []
+            for match in matches:
+                relevance, source, content = match
+                snippet = content.strip()[:150]
+                # Create a more descriptive title using first line of content
+                first_line = content.strip().split('\n')[0][:50]
+                title = f"{source.strip()}: {first_line}..." if first_line else source.strip()
+                
+                all_refs.append({
+                    "type": "knowledge_base",
+                    "source": source.strip(),
+                    "title": title,
+                    "relevance": float(relevance),
+                    "snippet": snippet + "..." if len(content.strip()) > 150 else snippet
+                })
+            
+            # Sort by relevance and take top 8 (enough for good coverage, not overwhelming)
+            sorted_refs = sorted(all_refs, key=lambda x: x["relevance"], reverse=True)
+            references = sorted_refs[:8]
+                
+        # Extract web search references (URLs)
+        elif "search" in tool_name.lower() or "web" in tool_name.lower():
+            # Try to parse as JSON first (MCP web search often returns JSON)
+            try:
+                data = json.loads(output)
+                if isinstance(data, dict) and 'results' in data:
+                    for result in data['results'][:5]:
+                        ref = {
+                            "type": "web",
+                            "title": result.get('title', ''),
+                            "url": result.get('url', ''),
+                            "source": result.get('url', ''),
+                            "snippet": result.get('snippet', result.get('content', ''))[:200]
+                        }
+                        if ref['url']:
+                            references.append(ref)
+                    return references
+            except (json.JSONDecodeError, TypeError):
+                pass
+            
+            # Look for URLs in the output
+            url_pattern = r'https?://[^\s<>"\')\]]+(?:[.,?!])?'
+            urls_found = re.findall(url_pattern, output)
+            
+            # Also look for structured results with title/url/snippet
+            # Pattern for typical search results: Title: ... URL: ... or similar
+            lines = output.split('\n')
+            current_ref = {}
+            
+            for line in lines:
+                line = line.strip()
+                if line.lower().startswith('title:'):
+                    if current_ref.get('url'):
+                        references.append(current_ref)
+                    current_ref = {"type": "web", "title": line[6:].strip()}
+                elif line.lower().startswith('url:'):
+                    current_ref["url"] = line[4:].strip()
+                    current_ref["source"] = current_ref.get("url", "")
+                elif line.lower().startswith('snippet:') or line.lower().startswith('content:'):
+                    current_ref["snippet"] = line.split(':', 1)[1].strip()[:200]
+                elif 'http' in line and 'url' not in current_ref:
+                    # Extract URL from the line
+                    url_match = re.search(url_pattern, line)
+                    if url_match:
+                        current_ref["url"] = url_match.group(0).rstrip('.,?!')
+                        current_ref["source"] = current_ref["url"]
+                        current_ref["type"] = "web"
+                        
+            if current_ref.get('url'):
+                references.append(current_ref)
+                
+            # If no structured refs found but URLs exist, create refs from URLs
+            if not references and urls_found:
+                for url in urls_found[:5]:  # Limit to 5 URLs
+                    url = url.rstrip('.,?!')
+                    references.append({
+                        "type": "web",
+                        "url": url,
+                        "source": url,
+                        "title": self._extract_domain_from_url(url)
+                    })
+                    
+        return references
+    
+    def _extract_domain_from_url(self, url: str) -> str:
+        """Extract readable domain name from URL."""
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            domain = parsed.netloc
+            # Remove www. prefix
+            if domain.startswith('www.'):
+                domain = domain[4:]
+            return domain
+        except:
+            return url[:50]
+
+    def _extract_artifacts_from_tool_output(self, tool_name: str, tool_args: Dict[str, Any], output: str) -> List[Dict[str, Any]]:
+        """Extract file artifacts from tool output.
+        
+        Args:
+            tool_name: Name of the tool that was called
+            tool_args: Arguments passed to the tool
+            output: Tool output string
+            
+        Returns:
+            List of artifact dictionaries with path, type, name (deduplicated by path)
+        """
+        artifacts = []
+        seen_paths = set()
+        
+        def add_artifact(path: str, size: int = 0):
+            """Add artifact if not already seen."""
+            if path and path not in seen_paths:
+                seen_paths.add(path)
+                artifacts.append({
+                    "type": "file",
+                    "path": path,
+                    "name": path.split("/")[-1] if "/" in path else path,
+                    "size": size,
+                    "language": self._get_file_language(path)
+                })
+        
+        if not output:
+            return artifacts
+        
+        # Check for file write operations
+        if "write_file" in tool_name.lower() or "filesystem" in tool_name.lower():
+            # Try to parse as JSON response
+            try:
+                data = json.loads(output)
+                if isinstance(data, dict):
+                    path = data.get("path") or tool_args.get("path")
+                    if path and data.get("success", True):
+                        add_artifact(path, data.get("size", 0))
+            except (json.JSONDecodeError, TypeError):
+                # Try to extract path from tool args
+                path = tool_args.get("path")
+                if path:
+                    add_artifact(path)
+        
+        # Check for python code execution that creates files
+        elif "python" in tool_name.lower() and "execute" in tool_name.lower():
+            # Look for file creation patterns in output
+            file_patterns = [
+                r"(?:saved|written|created|exported)\s+(?:to|as|file)?\s*['\"]?([^\s'\"]+\.[a-zA-Z0-9]+)['\"]?",
+                r"File\s+['\"]?([^\s'\"]+\.[a-zA-Z0-9]+)['\"]?\s+(?:saved|written|created)",
+            ]
+            for pattern in file_patterns:
+                matches = re.findall(pattern, output, re.IGNORECASE)
+                for match in matches:
+                    if match and not match.startswith('http'):
+                        add_artifact(match)
+        
+        return artifacts
+    
+    def _get_file_language(self, path: str) -> str:
+        """Get programming language/type from file extension."""
+        ext_map = {
+            ".py": "python",
+            ".js": "javascript",
+            ".ts": "typescript",
+            ".jsx": "javascript",
+            ".tsx": "typescript",
+            ".html": "html",
+            ".css": "css",
+            ".json": "json",
+            ".yaml": "yaml",
+            ".yml": "yaml",
+            ".md": "markdown",
+            ".txt": "text",
+            ".sql": "sql",
+            ".sh": "bash",
+            ".bash": "bash",
+            ".csv": "csv",
+            ".xml": "xml",
+        }
+        ext = "." + path.split(".")[-1].lower() if "." in path else ""
+        return ext_map.get(ext, "text")
+
+    def _build_citation_guide(self, references: List[Dict[str, Any]]) -> str:
+        """Build a citation guide for the LLM to use when writing responses.
+        
+        Args:
+            references: List of reference dictionaries
+            
+        Returns:
+            String with numbered references for the LLM to cite
+        """
+        if not references:
+            return ""
+        
+        lines = [
+            "CITATION GUIDE - Use these numbered references in your response:",
+            "Place the citation number in brackets [N] right after the relevant sentence.",
+            "Use different numbers for information from different sources.",
+            ""
+        ]
+        
+        for i, ref in enumerate(references, 1):
+            ref_type = ref.get("type", "source")
+            title = ref.get("title", ref.get("source", "Unknown"))
+            snippet = ref.get("snippet", "")[:100]
+            
+            if ref_type == "web":
+                url = ref.get("url", "")
+                lines.append(f"[{i}] {title} ({url[:50]}...)" if len(url) > 50 else f"[{i}] {title} ({url})")
+            else:
+                relevance = ref.get("relevance", 0)
+                lines.append(f"[{i}] {title} (relevance: {relevance:.2f})")
+            
+            if snippet:
+                lines.append(f"    Preview: {snippet}...")
+            lines.append("")
+        
+        lines.append("Remember: Cite [1], [2], [3], etc. inline after relevant claims!")
+        return "\n".join(lines)
+
     async def pre_cache_role_tools(self) -> None:
         """Pre-cache tools for all known roles.
 
@@ -356,7 +597,17 @@ class AgentExecutor:
             f"\n\nIMPORTANT: Keep your response concise and under "
             f"{self.ui_display_limit} characters. Be direct and focused."
         )
-        system_msg = SystemMessage(content=role.system_prompt + output_limit_instruction)
+        citation_instruction = (
+            "\n\nWhen citing sources from tools (knowledge base, web search), use inline citations "
+            "like Wikipedia: place [1], [2], etc. right after the relevant sentence or claim. "
+            "Number citations in order of first appearance. Example: 'The sky is blue [1]. Water is essential for life [2].'"
+        )
+        artifact_instruction = (
+            "\n\nWhen files/artifacts are mentioned as available from previous agents, you should:"
+            "\n1. Read the file using mcp_filesystem_read_file tool before using its content"
+            "\n2. If you create files, use mcp_filesystem_write_file with clear descriptive names"
+        )
+        system_msg = SystemMessage(content=role.system_prompt + output_limit_instruction + citation_instruction + artifact_instruction)
         task_msg = HumanMessage(content=f"{context}\n\nYour task: {task}")
 
         logger.info(f"Task message content (first 500 chars): {task_msg.content[:500]}...")
@@ -454,7 +705,7 @@ IMPORTANT: If completing directly, keep your response under {self.ui_display_lim
             logger.error(f"⚠️ {role.name} needs tools but no tools are available!")
             response = self._invoke_llm([system_msg, task_msg], config)
             self._track_tokens(response, agent_id, role.name)  # Track token usage
-            return {"content": str(response.content), "tool_calls": []}
+            return {"content": str(response.content), "tool_calls": [], "references": []}
 
         logger.info(f"🔧 {role.name} has access to {len(role_tools)} tools")
 
@@ -498,10 +749,19 @@ IMPORTANT: Keep search queries short and focused."""
             logger.error("   └─ No search tool found!")
             response = self._invoke_llm([system_msg, task_msg], config)
             self._track_tokens(response, agent_id, role.name)  # Track token usage
-            return {"content": str(response.content), "tool_calls": []}
+            return {"content": str(response.content), "tool_calls": [], "references": []}
 
         # Execute searches
         tool_results = self._execute_searches(search_tool, search_queries)
+        
+        # Extract references from search results
+        all_references = []
+        for result in tool_results:
+            refs = self._extract_references_from_tool_output(search_tool.name, result)
+            all_references.extend(refs)
+        
+        if all_references:
+            logger.info(f"   └─ Extracted {len(all_references)} reference(s) from search results")
 
         # Generate response with search results
         if tool_results:
@@ -529,12 +789,13 @@ IMPORTANT: Keep search queries short and focused."""
                 "tool_calls": [
                     {"name": search_tool.name, "args": {"query": q}} for q in search_queries
                 ],
+                "references": all_references,
             }
 
         # No results - fallback
         response = self._invoke_llm([system_msg, task_msg], config)
         self._track_tokens(response, agent_id, role.name)  # Track token usage
-        return {"content": str(response.content), "tool_calls": []}
+        return {"content": str(response.content), "tool_calls": [], "references": []}
 
     def _find_search_tool(self, role_tools: List[BaseTool]) -> Optional[BaseTool]:
         """Find search tool - prefers MCP websearch over DuckDuckGo.
@@ -613,9 +874,15 @@ IMPORTANT: Keep search queries short and focused."""
         logger.info(f"   └─ Guardrails: max {max_iterations} iterations, max {max_total_calls} tool calls")
 
         all_tool_calls = []
+        all_references = []  # Track references from tool outputs
+        all_artifacts = {}   # Track file artifacts created by tools (path -> artifact for dedup)
         total_tool_calls = 0
         messages = [system_msg, task_msg]
         iteration = 0
+        
+        def dedupe_artifacts():
+            """Return deduplicated artifacts list."""
+            return list(all_artifacts.values())
         
         for iteration in range(max_iterations):
             response = self._invoke_llm(messages, config, llm=llm_with_tools)
@@ -647,10 +914,26 @@ IMPORTANT: Keep search queries short and focused."""
                     logger.info(f"   └─ Tool [{total_tool_calls}/{max_total_calls}]: {tool_name}, Args: {tool_args}")
                     
                     result = self._execute_tool(tool_name, tool_args, role_tools)
+                    result_str = result or "No result returned"
                     tool_results.append({
                         "tool": tool_name,
-                        "result": result or "No result returned"
+                        "result": result_str
                     })
+                    
+                    # Extract references from tool output
+                    refs = self._extract_references_from_tool_output(tool_name, result_str)
+                    if refs:
+                        all_references.extend(refs)
+                        logger.info(f"   └─ Extracted {len(refs)} reference(s) from {tool_name}")
+                    
+                    # Extract artifacts (created files) from tool output
+                    artifacts = self._extract_artifacts_from_tool_output(tool_name, tool_args, result_str)
+                    if artifacts:
+                        for artifact in artifacts:
+                            path = artifact.get("path", "")
+                            if path:
+                                all_artifacts[path] = artifact  # Dedupe by path
+                        logger.info(f"   └─ Extracted {len(artifacts)} artifact(s) from {tool_name}")
                 
                 # Check if we hit the limit after processing
                 if total_tool_calls >= max_total_calls:
@@ -660,6 +943,10 @@ IMPORTANT: Keep search queries short and focused."""
                         for r in tool_results
                     ])
                     messages.append(AIMessage(content=f"Tool calls completed. Results:\n\n{tool_results_text}"))
+                    # Add reference list for citations
+                    if all_references:
+                        ref_list = self._build_citation_guide(all_references)
+                        messages.append(HumanMessage(content=ref_list))
                     break
                 
                 # Add tool results to message history for next iteration
@@ -672,16 +959,38 @@ IMPORTANT: Keep search queries short and focused."""
             else:
                 # No more tool calls - agent is done
                 logger.info(f"✅ {role.name} completed after {iteration + 1} iteration(s), {total_tool_calls} tool calls")
-                return {"content": str(response.content), "tool_calls": all_tool_calls}
+                
+                # If we have references, ask LLM to rewrite with proper citations
+                if all_references and total_tool_calls > 0:
+                    ref_guide = self._build_citation_guide(all_references)
+                    cited_response = self._invoke_llm(
+                        messages + [
+                            AIMessage(content=str(response.content)),
+                            HumanMessage(content=f"{ref_guide}\n\nPlease rewrite your response above with inline citations [1], [2], etc. using the reference numbers provided. Keep the same content but add citation markers after relevant claims.")
+                        ],
+                        config,
+                    )
+                    self._track_tokens(cited_response, agent_id, role.name)
+                    return {"content": str(cited_response.content), "tool_calls": all_tool_calls, "references": all_references, "artifacts": dedupe_artifacts()}
+                
+                return {"content": str(response.content), "tool_calls": all_tool_calls, "references": all_references, "artifacts": dedupe_artifacts()}
         
         # Max iterations or tool calls reached - get final answer
         logger.info(f"🔍 {role.name} reached limits (iter={iteration + 1}/{max_iterations}, tools={total_tool_calls}/{max_total_calls}), getting final answer")
+        
+        # Build citation guide if we have references
+        final_messages = messages.copy()
+        final_prompt = "You have reached the tool call limit. Please provide your final answer now based on all the tool results above."
+        if all_references:
+            ref_guide = self._build_citation_guide(all_references)
+            final_prompt = f"{ref_guide}\n\n{final_prompt}"
+        
         final_response = self._invoke_llm(
-            messages + [HumanMessage(content="You have reached the tool call limit. Please provide your final answer now based on all the tool results above.")],
+            final_messages + [HumanMessage(content=final_prompt)],
             config,
         )
         self._track_tokens(final_response, agent_id, role.name)
-        return {"content": str(final_response.content), "tool_calls": all_tool_calls}
+        return {"content": str(final_response.content), "tool_calls": all_tool_calls, "references": all_references, "artifacts": dedupe_artifacts()}
 
     def _process_tool_calls(
         self,
@@ -793,7 +1102,7 @@ IMPORTANT: Keep search queries short and focused."""
             if delegation_result:
                 return delegation_result
 
-        return {"content": response_content, "tool_calls": []}
+        return {"content": response_content, "tool_calls": [], "references": []}
 
     def _handle_delegation(
         self,
@@ -816,6 +1125,7 @@ IMPORTANT: Keep search queries short and focused."""
             logger.info(f"🔀 Delegating to {len(delegation_data['subtasks'])} sub-agents")
 
             sub_results = []
+            all_references = []
             for subtask_spec in delegation_data["subtasks"]:
                 sub_role_name = subtask_spec.get("role")
                 sub_task = subtask_spec.get("task")
@@ -826,6 +1136,9 @@ IMPORTANT: Keep search queries short and focused."""
                 logger.info(f"  └─ Delegating to {sub_role_name}: {sub_task[:60]}...")
                 sub_result = process_query_callback(sub_task, depth=depth + 1, max_depth=max_depth)
                 sub_results.append(f"{sub_role_name}: {sub_result['final_answer']}")
+                # Collect references from sub-agents
+                if sub_result.get('references'):
+                    all_references.extend(sub_result['references'])
 
             if sub_results:
                 synthesis_msg = HumanMessage(
@@ -839,7 +1152,7 @@ Combine these results to complete your original task."""
 
                 final_response = self._invoke_llm([system_msg, synthesis_msg], config)
                 self._track_tokens(final_response, agent_id, role_name)  # Track token usage
-                return {"content": str(final_response.content), "tool_calls": []}
+                return {"content": str(final_response.content), "tool_calls": [], "references": all_references}
 
         except json.JSONDecodeError:
             pass

@@ -2,12 +2,13 @@
 
 import asyncio
 import logging
+import os
 import time
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import json
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, UploadFile, File, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -33,6 +34,8 @@ from .database import (
     delete_chat_session,
     add_chat_message,
     get_chat_messages,
+    SessionLocal,
+    Artifact,
 )
 from .services.rag import RAGService
 from .services.mcp_client import MCPClient
@@ -95,6 +98,7 @@ Connect to `/ws` for real-time query execution with streaming updates.
         {"name": "profile", "description": "User profile management"},
         {"name": "chat", "description": "Chat sessions and history"},
         {"name": "query", "description": "Query execution"},
+        {"name": "documents", "description": "Document upload for RAG"},
         {"name": "memory", "description": "Conversation memory management"},
         {"name": "health", "description": "Health checks and system info"},
     ],
@@ -173,12 +177,11 @@ async def startup_event():
         raise RuntimeError(f"Invalid configuration: {error_msg}")
 
     # Initialize RAG service (optional)
-    rag_service = None
+    global rag_service
     if config.enable_rag:
         try:
             rag_service = RAGService(
                 persist_directory=config.rag_persist_directory,
-                vector_store=config.rag_vector_store,
                 qdrant_mode=config.rag_qdrant_mode,
                 qdrant_url=config.rag_qdrant_url,
                 qdrant_collection=config.rag_qdrant_collection,
@@ -819,6 +822,8 @@ async def process_query_with_updates(
                     "session_id": session_id,
                     "execution_time": result.get("execution_time", 0),
                     "token_usage": token_summary,
+                    "references": result.get("references", []),
+                    "artifacts": result.get("artifacts", []),
                 },
             }
         )
@@ -970,11 +975,13 @@ async def execute_with_progress(
         if isinstance(result, dict):
             output_str = result.get("content", str(result))
             tool_calls = result.get("tool_calls", [])
-            logger.info(f"Agent {agent_id} has {len(tool_calls)} tool calls")
+            artifacts = result.get("artifacts", [])
+            logger.info(f"Agent {agent_id} has {len(tool_calls)} tool calls, {len(artifacts)} artifacts")
         else:
             # Fallback for string results
             output_str = str(result)
             tool_calls = []
+            artifacts = []
             logger.warning(f"Agent {agent_id} returned non-dict result: {type(result)}")
 
         logger.info(f"Agent {agent_id} output: {output_str[:500]}")
@@ -1007,6 +1014,7 @@ async def execute_with_progress(
                         "output_length": len(output_str),
                         "tool_calls": tool_calls,
                         "token_usage": agent_tokens,
+                        "artifacts": artifacts,
                     },
                 }
             )
@@ -1050,6 +1058,367 @@ async def execute_with_progress(
         
         # Restore original method
         meta_system.execute_agent_for_langgraph = original_execute
+
+
+# Global RAG service reference (set during startup)
+rag_service = None
+
+
+# =============================================================================
+# Artifacts API - File downloads from agent-created files
+# =============================================================================
+
+@app.get("/artifacts/{file_path:path}", tags=["artifacts"])
+async def get_artifact(file_path: str):
+    """Retrieve content of a file created by an agent from database.
+    
+    Artifacts are saved to the database when created, so we serve directly
+    from DB - no dependency on MCP gateway or disk files.
+    """
+    from .database import Artifact
+    
+    # Extract just the filename for matching
+    filename = file_path.split("/")[-1] if "/" in file_path else file_path
+    
+    logger.info(f"Fetching artifact: {file_path} (filename: {filename})")
+    
+    # Determine content type based on file extension
+    ext = filename.split(".")[-1].lower() if "." in filename else "txt"
+    content_types = {
+        "py": "text/x-python",
+        "js": "text/javascript",
+        "ts": "text/typescript",
+        "html": "text/html",
+        "css": "text/css",
+        "json": "application/json",
+        "md": "text/markdown",
+        "txt": "text/plain",
+        "yaml": "text/yaml",
+        "yml": "text/yaml",
+        "sql": "text/x-sql",
+        "sh": "text/x-sh",
+        "csv": "text/csv",
+        "xml": "text/xml",
+    }
+    content_type = content_types.get(ext, "text/plain")
+    
+    # Get artifact from database
+    db = SessionLocal()
+    try:
+        # Search by exact path first, then by filename
+        artifact = db.query(Artifact).filter(Artifact.path == file_path).order_by(Artifact.created_at.desc()).first()
+        
+        if not artifact:
+            # Try with /workspace/ prefix
+            artifact = db.query(Artifact).filter(Artifact.path == f"/workspace/{file_path}").order_by(Artifact.created_at.desc()).first()
+        
+        if not artifact:
+            # Try matching just filename
+            artifact = db.query(Artifact).filter(Artifact.name == filename).order_by(Artifact.created_at.desc()).first()
+        
+        if not artifact:
+            # Last resort: partial match on path
+            artifact = db.query(Artifact).filter(Artifact.path.like(f"%{filename}")).order_by(Artifact.created_at.desc()).first()
+        
+        if artifact is not None and artifact.content is not None:
+            logger.info(f"Found artifact in database: {artifact.name} (id={artifact.id})")
+            return Response(
+                content=str(artifact.content),
+                media_type=content_type,
+                headers={
+                    "Content-Disposition": f'attachment; filename="{artifact.name}"'
+                }
+            )
+        
+        raise HTTPException(status_code=404, detail=f"Artifact not found: {file_path}")
+    finally:
+        db.close()
+
+
+@app.get("/artifacts/db/{session_id}", tags=["artifacts"])
+async def get_artifacts_by_session(session_id: str):
+    """Get all artifacts for an execution session from database.
+    
+    This retrieves artifacts that were persisted to the database,
+    which survive docker restarts.
+    """
+    from .artifact_service import ArtifactService
+    
+    artifacts = ArtifactService.get_artifacts_by_session(session_id)
+    return {
+        "session_id": session_id,
+        "artifacts": [ArtifactService.to_dict(a) for a in artifacts]
+    }
+
+
+@app.get("/artifacts/db/{session_id}/{artifact_id}", tags=["artifacts"])
+async def get_artifact_content_from_db(session_id: str, artifact_id: int):
+    """Get artifact content from database by ID.
+    
+    Fallback for when the file is no longer on disk.
+    """
+    from .artifact_service import ArtifactService
+    
+    content = ArtifactService.get_artifact_content(artifact_id)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    
+    # Get artifact metadata for content type
+    db = SessionLocal()
+    try:
+        artifact = db.query(Artifact).filter(Artifact.id == artifact_id).first()
+        if not artifact:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        
+        # Determine content type
+        ext = artifact.path.split(".")[-1].lower() if "." in artifact.path else "txt"
+        content_types = {
+            "py": "text/x-python",
+            "js": "text/javascript",
+            "ts": "text/typescript",
+            "html": "text/html",
+            "css": "text/css",
+            "json": "application/json",
+            "md": "text/markdown",
+            "txt": "text/plain",
+        }
+        content_type = content_types.get(ext, "text/plain")
+        
+        return Response(
+            content=content,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{artifact.name}"'
+            }
+        )
+    finally:
+        db.close()
+
+
+@app.post("/documents/upload", tags=["documents"])
+async def upload_document(file: UploadFile = File(...)):
+    """Upload a document to the RAG knowledge base.
+    
+    Supported formats: .txt, .md, .pdf, .json, .csv, .py, .js, .ts, .html, .css
+    """
+    global rag_service
+    
+    if not rag_service:
+        raise HTTPException(status_code=503, detail="RAG service not enabled. Set ENABLE_RAG=true")
+    
+    # Check file extension
+    allowed_extensions = {'.txt', '.md', '.pdf', '.json', '.csv', '.py', '.js', '.ts', '.html', '.css'}
+    file_ext = os.path.splitext(file.filename or '')[1].lower()
+    
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported file type: {file_ext}. Allowed: {', '.join(allowed_extensions)}"
+        )
+    
+    try:
+        # Read file content
+        content = await file.read()
+        
+        # Handle different file types
+        if file_ext == '.pdf':
+            # Try to extract text from PDF
+            try:
+                import pypdf
+                from io import BytesIO
+                reader = pypdf.PdfReader(BytesIO(content))
+                text_content = "\n".join(page.extract_text() or "" for page in reader.pages)
+                if not text_content.strip():
+                    raise HTTPException(status_code=400, detail="Could not extract text from PDF")
+            except ImportError:
+                raise HTTPException(status_code=400, detail="PDF support not installed. Run: pip install pypdf")
+        else:
+            # Text files - try multiple encodings
+            text_content = None
+            for encoding in ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1']:
+                try:
+                    text_content = content.decode(encoding)
+                    break
+                except (UnicodeDecodeError, LookupError):
+                    continue
+            
+            if text_content is None:
+                raise HTTPException(status_code=400, detail="Could not decode file. Unsupported encoding.")
+        
+        # Create document with metadata
+        from langchain_core.documents import Document
+        doc = Document(
+            page_content=text_content,
+            metadata={
+                "source": file.filename,
+                "file_type": file_ext,
+            }
+        )
+        
+        # Add to RAG service
+        success = rag_service.add_documents([doc])
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Document '{file.filename}' uploaded successfully",
+                "filename": file.filename,
+                "size": len(content),
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to add document to knowledge base")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading document: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/documents/upload-multiple", tags=["documents"])
+async def upload_multiple_documents(files: list[UploadFile] = File(...)):
+    """Upload multiple documents to the RAG knowledge base."""
+    global rag_service
+    
+    if not rag_service:
+        raise HTTPException(status_code=503, detail="RAG service not enabled. Set ENABLE_RAG=true")
+    
+    allowed_extensions = {'.txt', '.md', '.pdf', '.json', '.csv', '.py', '.js', '.ts', '.html', '.css'}
+    results = []
+    
+    for file in files:
+        file_ext = os.path.splitext(file.filename or '')[1].lower()
+        
+        if file_ext not in allowed_extensions:
+            results.append({
+                "filename": file.filename,
+                "success": False,
+                "error": f"Unsupported file type: {file_ext}"
+            })
+            continue
+            
+        try:
+            content = await file.read()
+            text_content = content.decode('utf-8')
+            
+            from langchain_core.documents import Document
+            doc = Document(
+                page_content=text_content,
+                metadata={
+                    "source": file.filename,
+                    "file_type": file_ext,
+                }
+            )
+            
+            success = rag_service.add_documents([doc])
+            results.append({
+                "filename": file.filename,
+                "success": success,
+                "size": len(content) if success else 0,
+            })
+            
+        except UnicodeDecodeError:
+            results.append({
+                "filename": file.filename,
+                "success": False,
+                "error": "File must be UTF-8 encoded text"
+            })
+        except Exception as e:
+            results.append({
+                "filename": file.filename,
+                "success": False,
+                "error": str(e)
+            })
+    
+    successful = sum(1 for r in results if r.get("success"))
+    return {
+        "success": successful > 0,
+        "total": len(files),
+        "successful": successful,
+        "results": results,
+    }
+
+
+@app.get("/documents/stats", tags=["documents"])
+async def get_document_stats():
+    """Get statistics about the RAG knowledge base."""
+    global rag_service
+    
+    if not rag_service:
+        raise HTTPException(status_code=503, detail="RAG service not enabled. Set ENABLE_RAG=true")
+    
+    return rag_service.get_stats()
+
+
+@app.delete("/documents/clear", tags=["documents"])
+async def clear_documents():
+    """Clear all documents from the RAG knowledge base."""
+    global rag_service
+    
+    if not rag_service:
+        raise HTTPException(status_code=503, detail="RAG service not enabled. Set ENABLE_RAG=true")
+    
+    success = rag_service.clear()
+    if success:
+        return {"success": True, "message": "Knowledge base cleared"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to clear knowledge base")
+
+
+@app.get("/documents/sources", tags=["documents"])
+async def list_document_sources():
+    """List all document sources in the knowledge base."""
+    global rag_service
+    
+    if not rag_service:
+        raise HTTPException(status_code=503, detail="RAG service not enabled. Set ENABLE_RAG=true")
+    
+    sources = rag_service.list_sources()
+    return {"sources": sources, "count": len(sources)}
+
+
+@app.delete("/documents/{source}", tags=["documents"])
+async def delete_document_by_source(source: str):
+    """Delete documents by source filename."""
+    global rag_service
+    
+    if not rag_service:
+        raise HTTPException(status_code=503, detail="RAG service not enabled. Set ENABLE_RAG=true")
+    
+    success = rag_service.delete_by_source(source)
+    if success:
+        return {"success": True, "message": f"Deleted documents with source: {source}"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to delete documents")
+
+
+@app.post("/documents/search", tags=["documents"])
+async def search_documents(query: str, k: int = 4, score_threshold: Optional[float] = None):
+    """Search the knowledge base.
+    
+    Args:
+        query: Search query
+        k: Number of results (default 4)
+        score_threshold: Minimum relevance score (0-1)
+    """
+    global rag_service
+    
+    if not rag_service:
+        raise HTTPException(status_code=503, detail="RAG service not enabled. Set ENABLE_RAG=true")
+    
+    results = rag_service.search(query, k=k, score_threshold=score_threshold)
+    return {
+        "query": query,
+        "count": len(results),
+        "results": [
+            {
+                "content": doc.page_content[:500] + ("..." if len(doc.page_content) > 500 else ""),
+                "source": doc.metadata.get("source", "unknown"),
+                "score": score,
+            }
+            for doc, score in results
+        ]
+    }
 
 
 @app.get("/memory", tags=["memory"])

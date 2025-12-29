@@ -20,6 +20,7 @@ import {
   SettingsPanel,
   ExecutionView,
   WorkflowVisualization,
+  ArtifactPreviewPanel,
 } from './components';
 import { useUIStore, useExecutionStore, useConnectionStore, useChatStore } from './store';
 
@@ -44,6 +45,7 @@ function App() {
   const [currentExecution, setCurrentExecution] = useState(null);
   const [lastExecution, setLastExecution] = useState(null); // Keep last completed execution
   const [viewingExecution, setViewingExecution] = useState(null); // For viewing past executions
+  const [previewArtifact, setPreviewArtifact] = useState(null); // For artifact preview panel
   
   // Zustand stores for UI only
   const {
@@ -406,6 +408,7 @@ function App() {
                     onRetry={handleSend}
                     isLatestMessage={index === messages.length - 1}
                     hasActiveExecution={!!currentExecution}
+                    onPreviewArtifact={setPreviewArtifact}
                   />
                 ))}
               </AnimatePresence>
@@ -489,6 +492,13 @@ function App() {
           />
         )}
       </AnimatePresence>
+      
+      {/* Artifact Preview Panel - Claude style */}
+      <ArtifactPreviewPanel
+        artifact={previewArtifact}
+        isOpen={!!previewArtifact}
+        onClose={() => setPreviewArtifact(null)}
+      />
     </div>
   );
 }

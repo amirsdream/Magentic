@@ -125,6 +125,28 @@ class ChatMessage(Base):
     session = relationship("ChatSession", back_populates="messages")
 
 
+class Artifact(Base):
+    """Artifacts (files) created by agents during execution.
+    
+    Stores file content in database for persistence across docker restarts.
+    """
+
+    __tablename__ = "artifacts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String(100), index=True, nullable=False)  # execution session
+    chat_session_id = Column(Integer, ForeignKey("chat_sessions.id"), nullable=True)
+    message_id = Column(Integer, ForeignKey("chat_messages.id"), nullable=True)
+    agent_id = Column(String(100), index=True, nullable=False)
+    name = Column(String(255), nullable=False)
+    path = Column(String(500), nullable=False)  # original path in workspace
+    language = Column(String(50), nullable=True)
+    content = Column(Text, nullable=True)  # actual file content
+    size = Column(Integer, nullable=True)
+    content_type = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class Conversation(Base):
     """Conversation history per user (legacy - kept for backward compatibility)."""
 
