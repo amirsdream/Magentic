@@ -278,6 +278,7 @@ function App() {
     }
 
     const userMessage = {
+      id: `user-${Date.now()}`,
       type: 'user',
       content,
       timestamp: new Date(),
@@ -395,10 +396,10 @@ function App() {
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 scrollbar-hide">
               {messages.length === 0 && !currentExecution && <EmptyState />}
 
-              <AnimatePresence mode="popLayout">
+              <AnimatePresence mode="sync">
                 {messages.map((message, index) => (
                   <MessageBubble
-                    key={`msg-${index}`}
+                    key={message.id || `msg-${index}`}
                     message={message}
                     messageId={index}
                     toggleStep={toggleStep}

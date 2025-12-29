@@ -247,24 +247,17 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         executionData.token_usage = data.data.token_usage;
       }
 
-      // Mark execution as complete (keep it visible, don't swap components)
+      // Mark execution as complete
       if (executionData) {
         executionData.stage = 'complete';
         executionData.output = data.data.output;
       }
 
-      // Update current execution to complete state (smooth transition, no remount)
-      setCurrentExecution((prev) => ({
-        ...prev,
-        stage: 'complete',
-        token_usage: data.data.token_usage,
-        output: data.data.output,
-      }));
-
-      // Add the assistant response message with references and artifacts
+      // Add the assistant response message immediately (execution stays visible)
       setMessages((msgs) => [
         ...msgs,
         {
+          id: `assistant-${Date.now()}`,
           type: 'assistant',
           content: data.data.output,
           execution: executionData,
@@ -274,8 +267,9 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         },
       ]);
 
-      // Clear execution after delay - smooth transition complete
-      setTimeout(() => setCurrentExecution(null), 500);
+      // Clear execution immediately - message is already added above
+      // No delay needed since message appears in same render cycle
+      setCurrentExecution(null);
       break;
 
     case WEBSOCKET_EVENTS.ERROR:
@@ -283,6 +277,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
       setMessages((prev) => [
         ...prev,
         {
+          id: `error-${Date.now()}`,
           type: 'error',
           content: data.message,
           timestamp: new Date(),
@@ -339,6 +334,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
       setMessages((msgs) => [
         ...msgs,
         {
+          id: `stopped-${Date.now()}`,
           type: 'assistant',
           content: data.message || 'Execution stopped by user',
           execution: stoppedExecutionData,
@@ -346,8 +342,8 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         },
       ]);
 
-      // Clear execution after delay - smooth transition
-      setTimeout(() => setCurrentExecution(null), 500);
+      // Clear execution immediately
+      setCurrentExecution(null);
       break;
 
     default:

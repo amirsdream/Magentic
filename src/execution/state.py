@@ -40,6 +40,7 @@ class MagenticState(TypedDict):
     messages: Annotated[List[BaseMessage], operator.add]  # For inter-agent messages
     conversation_history: Annotated[List[Dict[str, str]], operator.add]  # Chat history per step
     available_artifacts: Annotated[Dict[str, Any], merge_dicts]  # Artifacts created by agents (path -> artifact)
+    available_references: Annotated[List[Dict[str, Any]], operator.add]  # References (citations) from all agents
 
     # Metadata
     session_id: str

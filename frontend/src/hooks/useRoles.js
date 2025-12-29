@@ -54,7 +54,9 @@ const DEFAULT_ROLE_CONFIG = {
  * @param {string} apiUrl - Base API URL
  * @returns {Object} - { roles, loading, error, refetch }
  */
-export function useRoles(apiUrl = 'http://localhost:8000') {
+export function useRoles(apiUrl) {
+  // Use environment variable or default
+  const baseUrl = apiUrl || import.meta.env.VITE_API_URL || 'http://localhost:8000';
   const [roles, setRoles] = useState(DEFAULT_ROLE_CONFIG);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -64,7 +66,7 @@ export function useRoles(apiUrl = 'http://localhost:8000') {
       setLoading(true);
       setError(null);
 
-      const response = await fetch(`${apiUrl}/roles`);
+      const response = await fetch(`${baseUrl}/roles`);
       
       if (!response.ok) {
         throw new Error(`Failed to fetch roles: ${response.status}`);
@@ -106,7 +108,7 @@ export function useRoles(apiUrl = 'http://localhost:8000') {
 
   useEffect(() => {
     fetchRoles();
-  }, [apiUrl]);
+  }, [baseUrl]);
 
   /**
    * Get role config with fallback

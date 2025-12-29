@@ -49,64 +49,113 @@ const getLanguageBadgeColor = (language) => {
   return colors[language] || 'bg-gray-500/10 text-gray-600 dark:text-gray-400';
 };
 
-// Artifacts section - shows created files as clickable cards
+// Artifacts section - shows created files as clickable cards with beautiful design
 const Artifacts = ({ artifacts, onPreview }) => {
   if (!artifacts || artifacts.length === 0) return null;
   
   return (
-    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-      <div className="text-xs text-gray-500 dark:text-gray-400 mb-3 font-medium flex items-center gap-1.5">
-        <FileCode className="w-4 h-4" />
-        Created Files ({artifacts.length})
+    <motion.div 
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.2 }}
+      className="mt-5 pt-5 border-t border-gradient-to-r from-violet-200/50 via-fuchsia-200/50 to-purple-200/50 dark:from-purple-800/30 dark:via-pink-800/30 dark:to-violet-800/30"
+    >
+      <div className="flex items-center gap-2 mb-4">
+        <div className="p-1.5 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 dark:from-purple-500 dark:to-pink-500">
+          <FileCode className="w-3.5 h-3.5 text-white" />
+        </div>
+        <span className="text-sm font-semibold text-slate-700 dark:text-gray-300">
+          Created Files
+        </span>
+        <span className="text-xs px-2 py-0.5 rounded-full bg-violet-100 dark:bg-purple-900/50 text-violet-600 dark:text-purple-400 font-medium">
+          {artifacts.length}
+        </span>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      
+      <div className="grid grid-cols-1 gap-3">
         {artifacts.map((artifact, idx) => {
           const FileIcon = getFileIcon(artifact.language);
+          const langColors = {
+            python: 'from-blue-500 to-cyan-500',
+            javascript: 'from-yellow-500 to-orange-500',
+            typescript: 'from-blue-400 to-indigo-500',
+            html: 'from-orange-500 to-red-500',
+            css: 'from-pink-500 to-purple-500',
+            json: 'from-green-500 to-emerald-500',
+            sql: 'from-cyan-500 to-blue-500',
+            markdown: 'from-gray-500 to-slate-500',
+            bash: 'from-green-600 to-lime-500',
+            yaml: 'from-red-400 to-rose-500',
+          };
+          const gradientColor = langColors[artifact.language?.toLowerCase()] || 'from-violet-500 to-fuchsia-500';
+          
           return (
-            <button
+            <motion.button
               key={idx}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.1 * idx }}
+              whileHover={{ scale: 1.01, x: 4 }}
+              whileTap={{ scale: 0.99 }}
               onClick={() => onPreview(artifact)}
               className={clsx(
-                'group flex items-center gap-3 p-3 rounded-xl text-left w-full',
-                'bg-gradient-to-br from-slate-50 to-slate-100 dark:from-gray-800/80 dark:to-gray-800/60',
+                'group relative flex items-center gap-4 p-4 rounded-2xl text-left w-full',
+                'bg-gradient-to-br from-white to-slate-50 dark:from-gray-800/90 dark:to-gray-900/90',
                 'border border-slate-200/80 dark:border-gray-700/50',
-                'hover:border-violet-300 dark:hover:border-purple-600/50',
-                'hover:from-violet-50 hover:to-fuchsia-50 dark:hover:from-purple-900/30 dark:hover:to-pink-900/20',
-                'transition-all duration-200 hover:shadow-md'
+                'hover:border-violet-300 dark:hover:border-purple-500/50',
+                'hover:shadow-lg hover:shadow-violet-500/10 dark:hover:shadow-purple-500/10',
+                'transition-all duration-300'
               )}
             >
+              {/* Animated gradient background on hover */}
+              <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-violet-500/0 via-fuchsia-500/0 to-purple-500/0 group-hover:from-violet-500/5 group-hover:via-fuchsia-500/5 group-hover:to-purple-500/5 transition-all duration-300 pointer-events-none" />
+              
+              {/* Icon with gradient */}
               <div className={clsx(
-                'p-2 rounded-lg',
-                'bg-gradient-to-br from-violet-100 to-fuchsia-100 dark:from-purple-900/50 dark:to-pink-900/50',
-                'group-hover:from-violet-200 group-hover:to-fuchsia-200 dark:group-hover:from-purple-800/50 dark:group-hover:to-pink-800/50',
-                'transition-colors'
+                'relative p-3 rounded-xl',
+                'bg-gradient-to-br shadow-md',
+                gradientColor
               )}>
-                <FileIcon className="w-5 h-5 text-violet-600 dark:text-purple-400" />
+                <FileIcon className="w-5 h-5 text-white" />
+                <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-green-400 border-2 border-white dark:border-gray-800 animate-pulse" />
               </div>
               
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-sm text-slate-800 dark:text-white truncate">
+              <div className="relative flex-1 min-w-0">
+                <div className="font-semibold text-sm text-slate-800 dark:text-white truncate mb-1">
                   {artifact.name}
                 </div>
-                <div className="flex items-center gap-2 mt-0.5">
+                <div className="flex items-center gap-2">
                   <span className={clsx(
-                    'text-[10px] font-medium px-1.5 py-0.5 rounded-full uppercase',
+                    'text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide',
                     getLanguageBadgeColor(artifact.language)
                   )}>
                     {artifact.language || 'file'}
                   </span>
+                  {artifact.path && (
+                    <span className="text-[10px] text-slate-400 dark:text-gray-500 truncate max-w-[150px]">
+                      {artifact.path.split('/').slice(-2).join('/')}
+                    </span>
+                  )}
                 </div>
               </div>
               
-              <div className="flex items-center gap-1 text-slate-400 dark:text-gray-500 group-hover:text-violet-500 dark:group-hover:text-purple-400 transition-colors">
+              {/* View button */}
+              <div className={clsx(
+                'relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg',
+                'bg-slate-100 dark:bg-gray-700/50',
+                'group-hover:bg-violet-100 dark:group-hover:bg-purple-900/50',
+                'text-slate-500 dark:text-gray-400',
+                'group-hover:text-violet-600 dark:group-hover:text-purple-400',
+                'transition-all duration-200'
+              )}>
                 <Eye className="w-4 h-4" />
-                <span className="text-xs">View</span>
+                <span className="text-xs font-medium">View</span>
               </div>
-            </button>
+            </motion.button>
           );
         })}
       </div>
-    </div>
+    </motion.div>
   );
 };
 
@@ -339,9 +388,14 @@ const MessageBubble = forwardRef(function MessageBubble({ message, messageId, to
   if (message.type === 'user') {
     return (
       <motion.div
-        initial={{ opacity: 0, y: 20, scale: 0.95 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.3, ease: 'easeOut' }}
+        initial={{ opacity: 0, y: 30, scale: 0.9, x: 20 }}
+        animate={{ opacity: 1, y: 0, scale: 1, x: 0 }}
+        transition={{ 
+          type: 'spring', 
+          stiffness: 300, 
+          damping: 22,
+          mass: 0.7
+        }}
         className="flex justify-end gap-3"
       >
         <div className="max-w-2xl">
@@ -372,8 +426,13 @@ const MessageBubble = forwardRef(function MessageBubble({ message, messageId, to
   if (message.type === 'error') {
     return (
       <motion.div
-        initial={{ opacity: 0, y: 20, scale: 0.95 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
+        initial={{ opacity: 0, y: 20, scale: 0.9, x: -10 }}
+        animate={{ opacity: 1, y: 0, scale: 1, x: 0 }}
+        transition={{ 
+          type: 'spring', 
+          stiffness: 400, 
+          damping: 15
+        }}
         className="flex gap-3"
       >
         <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
@@ -397,9 +456,13 @@ const MessageBubble = forwardRef(function MessageBubble({ message, messageId, to
 
     return (
       <motion.div
-        initial={{ opacity: 0, y: 20, scale: 0.95 }}
+        initial={{ opacity: 0, y: 30, scale: 0.9 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.3, ease: 'easeOut' }}
+        transition={{ 
+          type: 'spring', 
+          stiffness: 300, 
+          damping: 25
+        }}
         className="flex gap-3"
       >
         {/* Avatar */}
@@ -440,9 +503,14 @@ const MessageBubble = forwardRef(function MessageBubble({ message, messageId, to
   // Assistant message
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
+      initial={{ opacity: 0, y: 30, scale: 0.9, rotateX: -10 }}
+      animate={{ opacity: 1, y: 0, scale: 1, rotateX: 0 }}
+      transition={{ 
+        type: 'spring', 
+        stiffness: 260, 
+        damping: 20,
+        mass: 0.8
+      }}
       className="flex gap-3"
     >
       {/* Avatar */}

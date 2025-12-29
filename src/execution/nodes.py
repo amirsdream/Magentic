@@ -156,6 +156,24 @@ def create_agent_node(
             context_parts.append(artifacts_context)
             console.print(f"  [yellow]✓ {len(available_artifacts)} artifact(s) available to this agent[/yellow]")
 
+        # Add available references (citations) from previous agents
+        available_references = state.get("available_references", [])
+        if available_references:
+            refs_context = "\n\n=== REFERENCES FROM PREVIOUS AGENTS ===\n"
+            refs_context += "The following references were cited by previous agents:\n"
+            for i, ref in enumerate(available_references, 1):
+                title = ref.get("title", "Untitled")
+                url = ref.get("url", "")
+                source_agent = ref.get("source_agent", "unknown")
+                refs_context += f"\n{i}. [{title}]({url})"
+                refs_context += f"\n   Source: {source_agent}"
+                if ref.get("snippet"):
+                    refs_context += f"\n   Snippet: {ref.get('snippet')[:200]}..."
+            refs_context += "\n\nYou may cite these references in your response if relevant."
+            refs_context += "\n======================================="
+            context_parts.append(refs_context)
+            console.print(f"  [blue]✓ {len(available_references)} reference(s) available to this agent[/blue]")
+
         context = "\n\n".join(context_parts)
         if len(context_parts) > 1:
             console.print(
@@ -233,11 +251,18 @@ def create_agent_node(
                 if path:
                     artifacts_update[path] = artifact
 
+            # Build references list update (add source agent to each reference)
+            references_update = []
+            for ref in agent_references:
+                ref_with_source = {**ref, "source_agent": agent_id}
+                references_update.append(ref_with_source)
+
             state_update = {
                 "agent_outputs": {agent_id: output_content},
                 "current_layer": agent_layer,
                 "conversation_history": [conversation_entry],
                 "available_artifacts": artifacts_update,
+                "available_references": references_update,
                 "execution_trace": [
                     {
                         "agent_id": agent_id,

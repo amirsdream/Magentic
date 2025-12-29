@@ -141,6 +141,7 @@ class MagenticGraphBuilder:
             messages=[],
             conversation_history=[],
             available_artifacts={},
+            available_references=[],
             session_id=session_id,
             start_time=datetime.now().isoformat(),
             final_output=None,

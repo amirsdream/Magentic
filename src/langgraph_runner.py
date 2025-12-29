@@ -131,6 +131,12 @@ class LangGraphExecutor:
                     if ref not in all_references:
                         all_references.append(ref)
 
+        # Include accumulated references from state (with source_agent info)
+        for ref in final_state.get("available_references", []):
+            existing_urls = {r.get("url") for r in all_references if r.get("url")}
+            if ref.get("url") and ref.get("url") not in existing_urls:
+                all_references.append(ref)
+
         # Collect all artifacts - deduplicate by path, keep latest version only
         artifacts_by_path = {}
         for trace in final_state.get("execution_trace", []):
@@ -208,6 +214,12 @@ class LangGraphExecutor:
                 for ref in refs:
                     if ref not in all_references:
                         all_references.append(ref)
+
+        # Include accumulated references from state (with source_agent info)
+        for ref in final_state.get("available_references", []):
+            existing_urls = {r.get("url") for r in all_references if r.get("url")}
+            if ref.get("url") and ref.get("url") not in existing_urls:
+                all_references.append(ref)
 
         # Collect all artifacts - deduplicate by path, keep latest version only
         artifacts_by_path = {}

@@ -471,9 +471,21 @@ function AgentDetailPanel({ agent, onClose }) {
       </div>
       
       {/* Content */}
-      <div className="p-4 overflow-y-auto flex-1">
+      <motion.div 
+        className="p-4 overflow-y-auto flex-1"
+        layout
+        transition={{ duration: 0.2, ease: 'easeInOut' }}
+      >
+        <AnimatePresence mode="wait">
         {activeTab === 'overview' && (
-          <div className="space-y-4">
+          <motion.div
+            key="overview"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+            className="space-y-4"
+          >
             {/* Task */}
             {agent.task && (
               <div>
@@ -522,11 +534,17 @@ function AgentDetailPanel({ agent, onClose }) {
                 )}
               </div>
             )}
-          </div>
+          </motion.div>
         )}
         
         {activeTab === 'output' && (
-          <div>
+          <motion.div
+            key="output"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+          >
             {outputText ? (
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -558,11 +576,17 @@ function AgentDetailPanel({ agent, onClose }) {
                 <p className="text-sm text-slate-500 dark:text-gray-500">No output yet</p>
               </div>
             )}
-          </div>
+          </motion.div>
         )}
         
         {activeTab === 'logs' && (
-          <div>
+          <motion.div
+            key="logs"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+          >
             {logs.length > 0 ? (
               <div className="space-y-2 font-mono text-xs">
                 {logs.map((log, idx) => {
@@ -615,11 +639,17 @@ function AgentDetailPanel({ agent, onClose }) {
                 )}
               </div>
             )}
-          </div>
+          </motion.div>
         )}
         
         {activeTab === 'tools' && (
-          <div>
+          <motion.div
+            key="tools"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+          >
             {toolCalls.length > 0 ? (
               <div className="space-y-3">
                 {toolCalls.map((tool, idx) => (
@@ -632,11 +662,17 @@ function AgentDetailPanel({ agent, onClose }) {
                 <p className="text-sm text-slate-500 dark:text-gray-500">No tool calls</p>
               </div>
             )}
-          </div>
+          </motion.div>
         )}
         
         {activeTab === 'artifacts' && (
-          <div>
+          <motion.div
+            key="artifacts"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+          >
             {artifacts.length > 0 ? (
               <div className="space-y-2">
                 {artifacts.map((artifact, idx) => (
@@ -649,9 +685,10 @@ function AgentDetailPanel({ agent, onClose }) {
                 <p className="text-sm text-slate-500 dark:text-gray-500">No artifacts created</p>
               </div>
             )}
-          </div>
+          </motion.div>
         )}
-      </div>
+        </AnimatePresence>
+      </motion.div>
       </div>
     </div>
   );
@@ -672,6 +709,20 @@ function ArtifactDebugItem({ artifact }) {
   
   const filename = artifact.name || artifact.path?.split('/').pop() || 'Unnamed file';
   const filePath = artifact.path || '';
+  
+  // Language-specific gradient colors
+  const langColors = {
+    python: 'from-blue-500 to-cyan-500',
+    javascript: 'from-yellow-500 to-orange-500',
+    typescript: 'from-blue-400 to-indigo-500',
+    html: 'from-orange-500 to-red-500',
+    css: 'from-pink-500 to-purple-500',
+    json: 'from-green-500 to-emerald-500',
+    sql: 'from-cyan-500 to-blue-500',
+    bash: 'from-green-600 to-lime-500',
+    yaml: 'from-red-400 to-rose-500',
+  };
+  const gradientColor = langColors[artifact.language?.toLowerCase()] || 'from-purple-500 to-pink-500';
   
   // Load from MCP gateway directly (debug)
   const loadFromGateway = async () => {
@@ -729,37 +780,59 @@ function ArtifactDebugItem({ artifact }) {
   };
   
   return (
-    <div className="bg-slate-50 dark:bg-gray-900/50 rounded-lg border border-slate-100 dark:border-gray-700/50 overflow-hidden">
-      <div className="flex items-center gap-3 p-3">
-        <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-          <FileText className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+    <motion.div 
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-gradient-to-br from-white to-slate-50 dark:from-gray-800/90 dark:to-gray-900/90 rounded-xl border border-slate-200/80 dark:border-gray-700/50 overflow-hidden shadow-sm hover:shadow-md transition-shadow"
+    >
+      <div className="flex items-center gap-3 p-4">
+        {/* Language-colored icon */}
+        <div className={clsx(
+          'p-2.5 rounded-xl bg-gradient-to-br shadow-md',
+          gradientColor
+        )}>
+          <FileText className="w-5 h-5 text-white" />
         </div>
+        
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-slate-700 dark:text-gray-300 truncate">
+          <p className="text-sm font-semibold text-slate-800 dark:text-white truncate">
             {filename}
           </p>
-          <p className="text-xs text-slate-500 dark:text-gray-500 truncate">
+          <p className="text-xs text-slate-400 dark:text-gray-500 truncate mt-0.5 font-mono">
             {filePath}
           </p>
         </div>
+        
         {artifact.language && (
-          <span className="text-xs px-2 py-0.5 bg-slate-200 dark:bg-gray-700 text-slate-600 dark:text-gray-400 rounded">
+          <span className={clsx(
+            'text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wide',
+            'bg-gradient-to-r',
+            gradientColor,
+            'text-white shadow-sm'
+          )}>
             {artifact.language}
           </span>
         )}
-        <button
+        
+        <motion.button
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
           onClick={() => {
             if (!expanded) loadFromGateway();
             setExpanded(!expanded);
           }}
-          className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-gray-700 transition-colors"
+          className={clsx(
+            'p-2 rounded-lg transition-colors',
+            'hover:bg-slate-100 dark:hover:bg-gray-700',
+            expanded && 'bg-violet-100 dark:bg-purple-900/50'
+          )}
           title="Debug: Load from MCP Gateway"
         >
           <ChevronDown className={clsx(
-            'w-4 h-4 text-slate-400 dark:text-gray-500 transition-transform',
-            expanded && 'rotate-180'
+            'w-5 h-5 transition-transform duration-300',
+            expanded ? 'rotate-180 text-violet-600 dark:text-purple-400' : 'text-slate-400 dark:text-gray-500'
           )} />
-        </button>
+        </motion.button>
       </div>
       
       <AnimatePresence>
@@ -768,36 +841,53 @@ function ArtifactDebugItem({ artifact }) {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="border-t border-slate-100 dark:border-gray-700/50"
+            transition={{ duration: 0.2 }}
+            className="border-t border-slate-200/80 dark:border-gray-700/50 bg-slate-50/50 dark:bg-gray-900/30"
           >
-            <div className="p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-[10px] font-semibold text-orange-600 dark:text-orange-400 uppercase tracking-wide">
-                  Debug: MCP Gateway Content
-                </span>
-                <button
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
+                  <span className="text-xs font-semibold text-orange-600 dark:text-orange-400 uppercase tracking-wider">
+                    MCP Gateway Debug
+                  </span>
+                </div>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                   onClick={loadFromGateway}
                   disabled={loading}
-                  className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
+                  className={clsx(
+                    'text-xs px-3 py-1.5 rounded-lg font-medium transition-all',
+                    'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
+                    'hover:bg-blue-200 dark:hover:bg-blue-900/50',
+                    'disabled:opacity-50'
+                  )}
                 >
-                  {loading ? 'Loading...' : 'Refresh'}
-                </button>
+                  {loading ? 'Loading...' : '↻ Refresh'}
+                </motion.button>
               </div>
               
               {loading && (
-                <div className="flex items-center gap-2 py-4 justify-center">
-                  <div className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
-                  <span className="text-xs text-slate-500">Fetching from gateway...</span>
+                <div className="flex items-center gap-3 py-6 justify-center">
+                  <motion.div 
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                    className="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full"
+                  />
+                  <span className="text-sm text-slate-500 dark:text-gray-400">Fetching from gateway...</span>
                 </div>
               )}
               
               {error === 'file_not_found' && (
-                <div className="text-xs bg-amber-50 dark:bg-amber-900/20 rounded p-3 border border-amber-200 dark:border-amber-800">
-                  <div className="flex items-start gap-2">
-                    <span className="text-amber-500">📁</span>
+                <div className="rounded-xl p-4 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border border-amber-200/80 dark:border-amber-800/50">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-lg bg-amber-100 dark:bg-amber-900/30">
+                      <span className="text-lg">📁</span>
+                    </div>
                     <div>
-                      <p className="font-medium text-amber-700 dark:text-amber-400">File not on disk</p>
-                      <p className="text-amber-600 dark:text-amber-500 mt-1">
+                      <p className="font-semibold text-sm text-amber-700 dark:text-amber-400">File not on disk</p>
+                      <p className="text-xs text-amber-600 dark:text-amber-500 mt-1 leading-relaxed">
                         This file was removed (docker cleanup). The content is still saved in the database and can be viewed via the artifact preview panel.
                       </p>
                     </div>
@@ -806,12 +896,14 @@ function ArtifactDebugItem({ artifact }) {
               )}
               
               {error === 'gateway_unavailable' && (
-                <div className="text-xs bg-slate-100 dark:bg-slate-800 rounded p-3 border border-slate-200 dark:border-slate-700">
-                  <div className="flex items-start gap-2">
-                    <span className="text-slate-400">🔌</span>
+                <div className="rounded-xl p-4 bg-gradient-to-br from-slate-50 to-gray-50 dark:from-slate-900/50 dark:to-gray-900/50 border border-slate-200/80 dark:border-slate-700/50">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800">
+                      <span className="text-lg">🔌</span>
+                    </div>
                     <div>
-                      <p className="font-medium text-slate-600 dark:text-slate-400">Gateway unavailable</p>
-                      <p className="text-slate-500 dark:text-slate-500 mt-1">
+                      <p className="font-semibold text-sm text-slate-600 dark:text-slate-400">Gateway unavailable</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-500 mt-1 leading-relaxed">
                         MCP Gateway is not running. Start docker services to access files on disk.
                       </p>
                     </div>
@@ -820,21 +912,29 @@ function ArtifactDebugItem({ artifact }) {
               )}
               
               {error && error !== 'file_not_found' && error !== 'gateway_unavailable' && (
-                <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded p-2">
-                  ⚠️ {error}
+                <div className="rounded-xl p-4 bg-gradient-to-br from-red-50 to-pink-50 dark:from-red-900/20 dark:to-pink-900/20 border border-red-200/80 dark:border-red-800/50">
+                  <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+                    <span>⚠️</span>
+                    <span className="text-sm font-medium">{error}</span>
+                  </div>
                 </div>
               )}
               
               {content && (
-                <pre className="text-xs text-slate-600 dark:text-gray-400 bg-white dark:bg-gray-800 rounded p-2 overflow-x-auto max-h-64 whitespace-pre-wrap">
-                  {content}
-                </pre>
+                <div className="rounded-xl overflow-hidden border border-slate-200/80 dark:border-gray-700/50">
+                  <div className="px-3 py-2 bg-slate-100 dark:bg-gray-800 border-b border-slate-200/80 dark:border-gray-700/50">
+                    <span className="text-[10px] font-semibold text-slate-500 dark:text-gray-400 uppercase tracking-wider">Content Preview</span>
+                  </div>
+                  <pre className="text-xs text-slate-700 dark:text-gray-300 bg-white dark:bg-gray-900 p-4 overflow-x-auto max-h-64 whitespace-pre-wrap font-mono leading-relaxed">
+                    {content}
+                  </pre>
+                </div>
               )}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   );
 }
 
@@ -1765,11 +1865,19 @@ function WorkflowVisualizationInner({
 
 // Wrapper component that provides roles context
 function WorkflowVisualization(props) {
-  // Fetch roles from backend
-  const rolesHook = useRoles('http://localhost:8000');
+  // Fetch roles from backend (uses VITE_API_URL env var)
+  const rolesHook = useRoles();
+  
+  // Default context value if hook fails
+  const contextValue = rolesHook || {
+    getRole: (roleName) => DEFAULT_ROLE_CONFIG.default,
+    roles: DEFAULT_ROLE_CONFIG,
+    loading: false,
+    error: null,
+  };
   
   return (
-    <RolesContext.Provider value={rolesHook}>
+    <RolesContext.Provider value={contextValue}>
       <WorkflowVisualizationInner {...props} />
     </RolesContext.Provider>
   );
