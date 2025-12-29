@@ -11,20 +11,24 @@ logger = logging.getLogger(__name__)
 
 
 # Role to MCP server mapping - which servers each role can access
+# NOTE: 'filesystem' is automatically added to ALL roles (see get_servers_for_role)
 ROLE_SERVER_MAPPING: Dict[str, List[str]] = {
     "researcher": ["websearch", "github", "memory"],
-    "coder": ["filesystem", "github", "python", "database"],
+    "coder": ["github", "python", "database"],
     "analyzer": ["websearch", "python", "database", "memory"],
-    "writer": [],  # Writer doesn't need tools - just returns content directly
-    "retriever": ["filesystem", "database", "memory"],
+    "writer": [],  # Just filesystem (added by default)
+    "retriever": ["database", "memory"],
     "planner": ["websearch", "memory"],
     "critic": ["memory"],
     "synthesizer": ["memory"],
-    "coordinator": ["websearch", "filesystem", "github", "memory"],
-    "data_engineer": ["database", "filesystem", "python"],
-    "debugger": ["python", "filesystem", "github"],
-    "tester": ["python", "filesystem"],
+    "coordinator": ["websearch", "github", "memory"],
+    "data_engineer": ["database", "python"],
+    "debugger": ["python", "github"],
+    "tester": ["python"],
 }
+
+# Default servers that ALL roles get automatically
+DEFAULT_SERVERS: List[str] = ["filesystem"]
 
 
 class MCPClient:
@@ -233,8 +237,9 @@ class MCPClient:
         """
         all_tools = await self.discover_tools()
 
-        # Use the global role mapping
-        selected_servers = ROLE_SERVER_MAPPING.get(role.lower(), [])
+        # Use the global role mapping + default servers (filesystem for all)
+        role_servers = ROLE_SERVER_MAPPING.get(role.lower(), [])
+        selected_servers = list(set(role_servers + DEFAULT_SERVERS))  # Combine and dedupe
         tools = []
 
         for server in selected_servers:

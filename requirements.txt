@@ -91,6 +91,7 @@ passlib>=1.7.4
 bcrypt>=4.1.0,<5.0
 python-multipart>=0.0.9  # For form data in auth endpoints
 pydantic>=2.0.0
+pyyaml>=6.0  # YAML config files for roles
 
 # FastAPI Users - Complete auth solution
 fastapi-users[sqlalchemy]>=14.0.0

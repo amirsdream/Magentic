@@ -1,10 +1,22 @@
-"""Role library - defines available agent roles without hardcoding agents."""
+"""Role library - loads agent roles from YAML configuration.
+
+Roles are defined in config/roles.yaml for easy customization.
+Non-technical users can add new roles without touching Python code.
+"""
 
 import logging
-from dataclasses import dataclass
-from typing import List, Optional
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import yaml
 
 logger = logging.getLogger(__name__)
+
+# Default config path
+CONFIG_DIR = Path(__file__).parent.parent / "config"
+ROLES_YAML = CONFIG_DIR / "roles.yaml"
 
 
 @dataclass
@@ -12,124 +24,137 @@ class AgentRole:
     """Definition of an agent role."""
 
     name: str
+    label: str
     description: str
+    icon: str
     capabilities: List[str]
     system_prompt: str
     needs_tools: bool = False
-    can_delegate: bool = False  # Can this role create sub-agents?
+    can_delegate: bool = False
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API response."""
+        return {
+            "name": self.name,
+            "label": self.label,
+            "description": self.description,
+            "icon": self.icon,
+            "capabilities": self.capabilities,
+            "needs_tools": self.needs_tools,
+            "can_delegate": self.can_delegate,
+        }
 
 
 class RoleLibrary:
-    """Library of available agent roles."""
+    """Library of available agent roles loaded from YAML."""
 
-    def __init__(self):
-        """Initialize role library."""
-        self.roles = self._load_roles()
-        logger.info(f"Loaded {len(self.roles)} roles")
+    def __init__(self, config_path: Optional[Path] = None):
+        """Initialize role library from YAML config."""
+        self.config_path = config_path or ROLES_YAML
+        self.roles: Dict[str, AgentRole] = {}
+        self.mcp_servers: Dict[str, str] = {}
+        self._load_from_yaml()
+        logger.info(f"Loaded {len(self.roles)} roles from {self.config_path}")
 
-    def _load_roles(self) -> dict:
-        """Load available roles."""
-        return {
+    def _load_from_yaml(self) -> None:
+        """Load roles from YAML configuration file."""
+        try:
+            if not self.config_path.exists():
+                logger.warning(f"Roles config not found at {self.config_path}, using defaults")
+                self._load_default_roles()
+                return
+
+            with open(self.config_path, "r") as f:
+                raw_config = yaml.safe_load(f)
+            
+            # Ensure config is a dict
+            if not isinstance(raw_config, dict):
+                logger.warning("Invalid roles config format, using defaults")
+                self._load_default_roles()
+                return
+            
+            config: Dict[str, Any] = raw_config
+
+            if not config or "roles" not in config:
+                logger.warning("Invalid roles config, using defaults")
+                self._load_default_roles()
+                return
+
+            # Load roles
+            roles_config: Dict[str, Any] = config.get("roles", {})
+            for name, role_config in roles_config.items():
+                self.roles[name] = AgentRole(
+                    name=name,
+                    label=role_config.get("label", name.title()),
+                    description=role_config.get("description", ""),
+                    icon=role_config.get("icon", "bot"),
+                    capabilities=role_config.get("capabilities", []),
+                    system_prompt=role_config.get("system_prompt", ""),
+                    needs_tools=role_config.get("needs_tools", False),
+                    can_delegate=role_config.get("can_delegate", False),
+                )
+
+            # Load MCP server mappings
+            self.mcp_servers = config.get("mcp_servers", {})
+
+        except Exception as e:
+            logger.error(f"Error loading roles from YAML: {e}")
+            self._load_default_roles()
+
+    def _load_default_roles(self) -> None:
+        """Load minimal default roles when YAML is unavailable."""
+        self.roles = {
             "researcher": AgentRole(
                 name="researcher",
-                description="Conducts research and gathers information from the web",
-                capabilities=["web_search", "fact_finding", "information_gathering"],
-                system_prompt="You are a research specialist. Use web search to find accurate, current information. Cite your sources.",
-                needs_tools=True,
-            ),
-            "analyzer": AgentRole(
-                name="analyzer",
-                description="Analyzes data, compares options, executes code for analysis",
-                capabilities=["analysis", "comparison", "reasoning", "code_execution"],
-                system_prompt="You are an analysis specialist. Break down complex information, identify patterns, and provide clear insights. Use Python execution when calculations are needed.",
-                needs_tools=True,
-            ),
-            "planner": AgentRole(
-                name="planner",
-                description="Creates plans, strategies, and step-by-step solutions",
-                capabilities=["planning", "strategy", "organization", "web_search"],
-                system_prompt="You are a planning specialist. Create detailed, actionable plans with clear steps and considerations. Use web search to gather relevant information for planning.",
-                needs_tools=True,
-                can_delegate=True,
-            ),
-            "writer": AgentRole(
-                name="writer",
-                description="Writes content, summaries, documentation, and articles. Can save files.",
-                capabilities=["writing", "summarization", "documentation", "file_operations"],
-                system_prompt="""You are a writing specialist. Create clear, well-structured content tailored to the audience.
-
-When asked to create a document or file:
-1. Write the content
-2. Save it using the filesystem tool (mcp_filesystem_write_file)
-3. Report what file you created
-
-If just asked for content without saving, return it directly.""",
+                label="Researcher",
+                description="Conducts research and gathers information",
+                icon="search",
+                capabilities=["web_search", "fact_finding"],
+                system_prompt="You are a research specialist.",
                 needs_tools=True,
             ),
             "coder": AgentRole(
                 name="coder",
-                description="Writes, executes, and debugs code using Python and filesystem tools",
-                capabilities=["coding", "debugging", "code_review", "code_execution", "file_operations"],
-                system_prompt="""You are a coding specialist. Write clean, well-documented code. 
-
-IMPORTANT: When asked to write and run code, you MUST:
-1. First write the code using the filesystem tool (mcp_filesystem_write_file)
-2. Then EXECUTE the code using the python tool (mcp_python_execute_code) to show the output
-3. Report the execution results
-
-Always execute code to verify it works and show the output to the user.""",
+                label="Coder",
+                description="Writes and executes code",
+                icon="code",
+                capabilities=["coding", "code_execution"],
+                system_prompt="You are a coding specialist.",
                 needs_tools=True,
             ),
-            "critic": AgentRole(
-                name="critic",
-                description="Reviews work, finds issues, suggests improvements",
-                capabilities=["review", "quality_check", "validation"],
-                system_prompt="You are a quality reviewer. Identify issues, gaps, and areas for improvement. Be constructive.",
-                needs_tools=False,
+            "analyzer": AgentRole(
+                name="analyzer",
+                label="Analyzer",
+                description="Analyzes data and information",
+                icon="brain",
+                capabilities=["analysis", "reasoning"],
+                system_prompt="You are an analysis specialist.",
+                needs_tools=True,
+            ),
+            "writer": AgentRole(
+                name="writer",
+                label="Writer",
+                description="Writes content and documents",
+                icon="file-text",
+                capabilities=["writing", "documentation"],
+                system_prompt="You are a writing specialist.",
+                needs_tools=True,
             ),
             "synthesizer": AgentRole(
                 name="synthesizer",
-                description="Combines multiple inputs into coherent final output",
-                capabilities=["synthesis", "integration", "finalization"],
-                system_prompt="You are a synthesis specialist. Combine all inputs into a comprehensive, well-structured final answer.",
+                label="Synthesizer",
+                description="Combines inputs into final output",
+                icon="zap",
+                capabilities=["synthesis", "integration"],
+                system_prompt="You are a synthesis specialist.",
                 needs_tools=False,
             ),
-            "retriever": AgentRole(
-                name="retriever",
-                description="Retrieves relevant information from knowledge base and databases",
-                capabilities=["retrieval", "knowledge_search", "document_lookup", "database_query"],
-                system_prompt="You are a knowledge retrieval specialist. Search the knowledge base and databases for relevant information and provide context.",
-                needs_tools=True,
-            ),
-            "coordinator": AgentRole(
-                name="coordinator",
-                description="Manages complex multi-step workflows by delegating to specialized agents",
-                capabilities=["task_decomposition", "delegation", "workflow_management", "web_search"],
-                system_prompt="You are a workflow coordinator. For complex tasks, break them into sub-tasks and delegate to specialized agents. Use web search when you need information.",
-                needs_tools=True,
-                can_delegate=True,
-            ),
-            "data_engineer": AgentRole(
-                name="data_engineer",
-                description="Works with databases, data pipelines, and file operations",
-                capabilities=["database_query", "data_transformation", "file_operations", "code_execution"],
-                system_prompt="You are a data engineering specialist. Work with databases, transform data, and manage data pipelines. Use SQL and Python for data operations.",
-                needs_tools=True,
-            ),
-            "debugger": AgentRole(
-                name="debugger",
-                description="Debugs code issues, traces errors, and validates fixes",
-                capabilities=["debugging", "error_analysis", "code_execution", "file_operations"],
-                system_prompt="You are a debugging specialist. Analyze code errors, trace issues, and validate fixes. Execute code to reproduce and verify bug fixes.",
-                needs_tools=True,
-            ),
-            "tester": AgentRole(
-                name="tester",
-                description="Tests code, writes test cases, validates functionality",
-                capabilities=["testing", "validation", "code_execution", "file_operations"],
-                system_prompt="You are a testing specialist. Write and execute test cases, validate code functionality, and report test results.",
-                needs_tools=True,
-            ),
+        }
+        self.mcp_servers = {
+            "researcher": "websearch",
+            "coder": "filesystem, python",
+            "analyzer": "python",
+            "writer": "filesystem",
         }
 
     def get_role(self, role_name: str) -> Optional[AgentRole]:
@@ -139,29 +164,24 @@ Always execute code to verify it works and show the output to the user.""",
     def list_roles(self) -> List[str]:
         """List all available role names."""
         return list(self.roles.keys())
+    
+    def get_all_roles_config(self) -> Dict[str, Dict[str, Any]]:
+        """Get all roles configuration for frontend."""
+        return {name: role.to_dict() for name, role in self.roles.items()}
 
     def describe_roles(self) -> str:
         """Get a description of all roles for the coordinator."""
-        # MCP server mapping for role descriptions
-        role_mcp_servers = {
-            "researcher": "websearch, github, memory",
-            "coder": "filesystem, github, python, database",
-            "analyzer": "websearch, python, database, memory",
-            "writer": "filesystem",  # Writer can save files as artifacts
-            "retriever": "filesystem, database, memory",
-            "planner": "websearch, memory",
-            "coordinator": "websearch, filesystem, github, memory",
-            "data_engineer": "database, filesystem, python",
-            "debugger": "python, filesystem, github",
-            "tester": "python, filesystem",
-        }
-        
         lines = ["Available Agent Roles:"]
         for name, role in self.roles.items():
             tools_info = ""
             if role.needs_tools:
-                mcp_servers = role_mcp_servers.get(name, "")
+                mcp_servers = self.mcp_servers.get(name, "")
                 tools_info = f" [MCP TOOLS: {mcp_servers}]" if mcp_servers else " [HAS TOOLS]"
             delegate = " [CAN DELEGATE]" if role.can_delegate else ""
             lines.append(f"- {name}: {role.description}{tools_info}{delegate}")
         return "\n".join(lines)
+    
+    def reload(self) -> None:
+        """Reload roles from YAML file."""
+        self._load_from_yaml()
+        logger.info(f"Reloaded {len(self.roles)} roles")

@@ -285,6 +285,51 @@ async def get_pricing():
     }
 
 
+@app.get("/roles", tags=["health"])
+async def get_roles():
+    """Get all available agent roles for the frontend.
+    
+    Returns role configurations loaded from config/roles.yaml.
+    Frontend uses this for dynamic role icons and labels.
+    """
+    from .role_library import RoleLibrary
+    
+    try:
+        role_library = RoleLibrary()
+        return {
+            "success": True,
+            "roles": role_library.get_all_roles_config(),
+        }
+    except Exception as e:
+        logger.warning(f"Failed to load roles: {e}")
+        return {
+            "success": False,
+            "roles": {},
+            "error": str(e),
+        }
+
+
+@app.post("/roles/reload", tags=["health"])
+async def reload_roles():
+    """Reload roles from YAML config file.
+    
+    Use this after editing config/roles.yaml to apply changes
+    without restarting the server.
+    """
+    from .role_library import RoleLibrary
+    
+    try:
+        role_library = RoleLibrary()
+        return {
+            "success": True,
+            "message": f"Reloaded {len(role_library.roles)} roles",
+            "roles": role_library.get_all_roles_config(),
+        }
+    except Exception as e:
+        logger.error(f"Failed to reload roles: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/profile/{username}", tags=["profile"])
 async def get_profile(username: str, db: Session = Depends(get_db)):
     """Get user profile by username."""

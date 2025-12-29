@@ -2,7 +2,7 @@
  * Workflow Visualization - GitHub Actions style execution flow
  * Real-time visualization of agent execution with status updates
  */
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, createContext, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -38,23 +38,31 @@ import {
   CheckCircle2,
   FileCode,
   ArrowRight,
+  Bot,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { useRoles } from '../hooks/useRoles';
 
-// Role configurations
-const ROLE_CONFIG = {
-  researcher: { icon: Search, color: 'blue', label: 'Researcher' },
-  coder: { icon: Code, color: 'green', label: 'Coder' },
-  writer: { icon: FileText, color: 'purple', label: 'Writer' },
-  analyzer: { icon: Brain, color: 'yellow', label: 'Analyzer' },
-  planner: { icon: Brain, color: 'orange', label: 'Planner' },
-  critic: { icon: AlertCircle, color: 'red', label: 'Critic' },
-  synthesizer: { icon: Zap, color: 'cyan', label: 'Synthesizer' },
-  coordinator: { icon: Layers, color: 'pink', label: 'Coordinator' },
-  data_engineer: { icon: Terminal, color: 'emerald', label: 'Data Engineer' },
-  debugger: { icon: Wrench, color: 'amber', label: 'Debugger' },
-  tester: { icon: Activity, color: 'indigo', label: 'Tester' },
-  default: { icon: Brain, color: 'gray', label: 'Agent' },
+// Create context for roles
+const RolesContext = createContext(null);
+
+// Hook to use roles context
+const useRolesContext = () => {
+  const context = useContext(RolesContext);
+  // Return default if context not available
+  if (!context) {
+    return {
+      getRole: (roleName) => DEFAULT_ROLE_CONFIG.default,
+      roles: DEFAULT_ROLE_CONFIG,
+      loading: false,
+    };
+  }
+  return context;
+};
+
+// Default fallback config when backend is unavailable
+const DEFAULT_ROLE_CONFIG = {
+  default: { icon: Bot, label: 'Agent' },
 };
 
 const STATUS_CONFIG = {
@@ -102,7 +110,8 @@ function formatDuration(ms) {
 
 // Job Card - Simple card with essential info (tokens + cost + task)
 function JobCard({ agent, isSelected, onClick, index }) {
-  const roleConfig = ROLE_CONFIG[agent.role] || ROLE_CONFIG.default;
+  const { getRole } = useRolesContext();
+  const roleConfig = getRole(agent.role);
   const Icon = roleConfig.icon;
   const isRunning = agent.status === 'running';
   const isComplete = agent.status === 'completed' || agent.status === 'complete';
@@ -156,7 +165,7 @@ function JobCard({ agent, isSelected, onClick, index }) {
           
           {/* Role name */}
           <div className="flex items-center gap-1.5 flex-1 min-w-0">
-            <Icon className={clsx('w-3.5 h-3.5 flex-shrink-0', getColorClasses(roleConfig.color, 'text'))} />
+            <Icon className="w-3.5 h-3.5 flex-shrink-0 text-purple-500 dark:text-purple-400" />
             <span className="text-sm font-medium text-slate-700 dark:text-gray-200 truncate">
               {roleConfig.label}
             </span>
@@ -282,6 +291,7 @@ function LayerColumn({ layer, agents, selectedAgent, onSelectAgent, isFirst, isL
 
 // Agent Detail Panel for DAG - Modal popup view (using Portal)
 function AgentDetailPanel({ agent, onClose }) {
+  const { getRole } = useRolesContext();
   // Start on logs tab if agent is running, otherwise overview
   const initialTab = agent?.status === 'running' ? 'logs' : 'overview';
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -306,7 +316,7 @@ function AgentDetailPanel({ agent, onClose }) {
   
   if (!agent) return null;
   
-  const roleConfig = ROLE_CONFIG[agent.role] || ROLE_CONFIG.default;
+  const roleConfig = getRole(agent.role);
   const statusConfig = STATUS_CONFIG[agent.status] || STATUS_CONFIG.pending;
   const Icon = roleConfig.icon;
   const StatusIcon = statusConfig.icon;
@@ -356,11 +366,8 @@ function AgentDetailPanel({ agent, onClose }) {
         <div className="p-4 border-b border-slate-200 dark:border-gray-700/50 bg-gradient-to-r from-slate-50 to-slate-100 dark:from-gray-800/80 dark:to-gray-800/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className={clsx(
-                'p-2.5 rounded-lg',
-                getColorClasses(roleConfig.color, 'bg') + '/20'
-              )}>
-                <Icon className={clsx('w-6 h-6', getColorClasses(roleConfig.color, 'text'))} />
+              <div className="p-2.5 rounded-lg bg-purple-100 dark:bg-purple-500/20">
+                <Icon className="w-6 h-6 text-purple-600 dark:text-purple-400" />
               </div>
               <div>
                 <h3 className="font-semibold text-lg text-slate-700 dark:text-white">{roleConfig.label}</h3>
@@ -1014,7 +1021,8 @@ function ToolCallItem({ tool, index }) {
 
 // Agent Step Component - GitHub Actions style
 function AgentStep({ agent, isExpanded, onToggle, layerIndex, stepIndex }) {
-  const roleConfig = ROLE_CONFIG[agent.role] || ROLE_CONFIG.default;
+  const { getRole } = useRolesContext();
+  const roleConfig = getRole(agent.role);
   const statusConfig = STATUS_CONFIG[agent.status] || STATUS_CONFIG.pending;
   const Icon = roleConfig.icon;
   const StatusIcon = statusConfig.icon;
@@ -1068,14 +1076,9 @@ function AgentStep({ agent, isExpanded, onToggle, layerIndex, stepIndex }) {
         {/* Agent info */}
         <div className="flex-1 text-left">
           <div className="flex items-center gap-2">
-            <Icon className={clsx('w-4 h-4', getColorClasses(roleConfig.color, 'text'))} />
+            <Icon className="w-4 h-4 text-purple-400" />
             <span className="font-medium text-white text-sm">{agent.agent_id}</span>
-            <span className={clsx(
-              'px-2 py-0.5 rounded text-xs',
-              getColorClasses(roleConfig.color, 'bg'),
-              'bg-opacity-20',
-              getColorClasses(roleConfig.color, 'text')
-            )}>
+            <span className="px-2 py-0.5 rounded text-xs bg-purple-500/20 text-purple-300">
               {roleConfig.label}
             </span>
           </div>
@@ -1213,8 +1216,8 @@ function ExecutionLayer({ layer, agents, expandedAgents, toggleAgent }) {
   );
 }
 
-// Main Workflow Visualization Component
-function WorkflowVisualization({ 
+// Main Workflow Visualization Component (inner)
+function WorkflowVisualizationInner({ 
   execution, 
   executionHistory = [], 
   onSelectExecution,
@@ -1757,6 +1760,18 @@ function WorkflowVisualization({
         {content}
       </motion.div>
     </motion.div>
+  );
+}
+
+// Wrapper component that provides roles context
+function WorkflowVisualization(props) {
+  // Fetch roles from backend
+  const rolesHook = useRoles('http://localhost:8000');
+  
+  return (
+    <RolesContext.Provider value={rolesHook}>
+      <WorkflowVisualizationInner {...props} />
+    </RolesContext.Provider>
   );
 }
 
