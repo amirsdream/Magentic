@@ -172,6 +172,18 @@ Query → RAG Context → Meta-Coordinator → Execution Plan → LangGraph DAG
                                     WebSocket → React UI
 ```
 
+### Workflow Execution
+
+The LangGraph DAG executes agents in parallel layers with barrier synchronization:
+
+![Workflow Execution](assets/workflow.png)
+
+### Agent Details
+
+Expand any agent node to view real-time execution details, tool calls, and token usage:
+
+![Agent Node Details](assets/node_details.png)
+
 | Component | Technology |
 |-----------|------------|
 | Orchestration | LangGraph (DAG, checkpointing) |
@@ -182,6 +194,12 @@ Query → RAG Context → Meta-Coordinator → Execution Plan → LangGraph DAG
 | RAG | Qdrant / ChromaDB |
 | MCP | Docker + FastMCP |
 | Observability | Prometheus + Grafana + Loki |
+
+### Observability Dashboard
+
+Monitor agent performance, token usage, and system health with Grafana:
+
+![Observability Dashboard](assets/observability.png)
 
 ## Documentation
 
