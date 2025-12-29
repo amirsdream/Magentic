@@ -9,7 +9,7 @@
 
 **Dynamic multi-agent AI orchestration with parallel execution.**
 
-![Magentic UI](assets/MagenticUI.png)
+![Magentic UI](assets/workflow.png)
 
 ## Why Magentic?
 
@@ -171,12 +171,6 @@ Query → RAG Context → Meta-Coordinator → Execution Plan → LangGraph DAG
                                               ↓
                                     WebSocket → React UI
 ```
-
-### Workflow Execution
-
-The LangGraph DAG executes agents in parallel layers with barrier synchronization:
-
-![Workflow Execution](assets/workflow.png)
 
 ### Agent Details
 
