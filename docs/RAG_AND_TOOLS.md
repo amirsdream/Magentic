@@ -95,6 +95,24 @@ MCP_GATEWAY_URL=http://localhost:3100
 | `github` | GitHub API operations |
 | `web-search` | Web search |
 
+### Default Servers
+
+**All agents automatically have access to `filesystem`** regardless of their role configuration. This ensures every agent can read/write files when needed.
+
+Additional servers are assigned per role in `config/roles.yaml`:
+
+```yaml
+researcher:
+  mcp_servers:
+    - web-search
+    - fetch
+
+coder:
+  mcp_servers:
+    - python-exec
+    - github
+```
+
 ### Adding Custom Servers
 
 Edit `docker/mcp-gateway/config.json`:

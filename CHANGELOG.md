@@ -2,6 +2,37 @@
 
 All notable changes to Magentic are documented here.
 
+## [1.5.0] - 2024-12-29
+
+### Added
+- **YAML Role Configuration** — Define agent roles in `config/roles.yaml` for easy customization
+- **Role API Endpoints** — `/roles` and `/roles/reload` for dynamic role management
+- **Cross-Agent Artifact Flow** — Artifacts created by early agents automatically available to later agents
+- **Cross-Agent Reference Flow** — Citations from early agents passed to dependent agents with source attribution
+- **Beautiful Artifact Preview** — Redesigned slide-in panel with:
+  - Language-specific gradient accent bars
+  - Animated file icons with sparkle effects
+  - Line numbers with hover highlighting
+  - Stats footer (line count, character count)
+  - Blur backdrop and rounded corners
+- **Enhanced Artifact Cards** — In message bubbles with:
+  - Staggered entrance animations
+  - Language-specific gradient icons
+  - Pulse "new" indicator dots
+  - Path preview and hover effects
+
+### Changed
+- **Filesystem Default for All Roles** — All agents now have filesystem access by default
+- **Role Library from YAML** — Roles loaded from `config/roles.yaml` instead of hardcoded Python
+- **Stable Message IDs** — Fixed UI flash/blink by using stable unique keys for messages
+
+### Technical
+- `available_references` state field with `operator.add` reducer for accumulating citations
+- `DEFAULT_SERVERS = ["filesystem"]` in MCP client for universal file access
+- `useRoles` hook fetches role config from backend API
+- `RolesContext` provider for dynamic role icons/labels in workflow visualization
+- Spring physics animations (stiffness: 260-400, damping: 15-25)
+
 ## [1.4.0] - 2024-12-29
 
 ### Added

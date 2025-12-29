@@ -33,6 +33,8 @@ chmod +x magentic.sh && ./magentic.sh setup
 | 🔍 **Web Search** | Real-time information retrieval with inline citations |
 | 📚 **RAG Support** | Query your own documents with Wikipedia-style references |
 | 📎 **Artifacts** | Claude-style preview panel for agent-created files |
+| 🔄 **Cross-Agent Flow** | Artifacts and citations automatically flow between agents |
+| ⚙️ **YAML Roles** | Configure agent roles via `config/roles.yaml` |
 | 🎨 **Real-time UI** | Live execution visualization with WebSocket streaming |
 | 🔐 **User Auth** | JWT authentication with conversation history |
 | 📊 **Usage Tracking** | Token usage and cost tracking per user |
@@ -104,6 +106,16 @@ ENABLE_METRICS=true              # Prometheus metrics
 
 ## Agent Roles
 
+Roles are configured in `config/roles.yaml` for easy customization:
+
+```yaml
+researcher:
+  label: "Researcher"
+  icon: "Search"
+  capabilities: ["web_search", "analysis"]
+  system_prompt: "You are a research specialist..."
+```
+
 | Role | Description |
 |------|-------------|
 | **Researcher** | Web search for current information |
@@ -114,6 +126,27 @@ ENABLE_METRICS=true              # Prometheus metrics
 | **Coder** | Code generation and explanation |
 | **Critic** | Review and improvement |
 | **Synthesizer** | Combine inputs into final output |
+
+### Adding Custom Roles
+
+Edit `config/roles.yaml` and reload:
+```bash
+curl -X POST http://localhost:8000/roles/reload
+```
+
+## Cross-Agent Data Flow
+
+**Artifacts**: When agents create files, subsequent agents receive context about available files and can read them using filesystem tools.
+
+**References**: Citations from early agents (RAG documents, web sources) are passed to dependent agents with source attribution, enabling consistent citation across the entire response.
+
+```
+Agent A (Researcher) → creates file.py, cites [1], [2]
+        ↓
+Agent B (Analyzer) → sees "FILES: file.py", "REFS: [1], [2] from Agent A"
+        ↓
+Agent C (Synthesizer) → has access to all artifacts and references
+```
 
 ## Citations & Artifacts
 

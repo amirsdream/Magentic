@@ -157,6 +157,26 @@ Layer 1: [tester_1] receives context:
           You can read these files using the filesystem tool."
 ```
 
+### Reference Sharing Between Agents
+
+Citations from RAG and web search are accumulated in `available_references` and passed to dependent agents:
+
+```
+Layer 0: [researcher_0] cites sources [1], [2]
+              ↓
+         available_references: [{url, title, source_agent: "researcher_0"}, ...]
+              ↓ barrier
+Layer 1: [analyzer_1] receives context:
+         "References from previous agents:
+           1. [Source Title](url) - Source: researcher_0
+          You may cite these references in your response."
+```
+
+This ensures:
+- Consistent citations across multi-agent responses
+- Later agents can reference earlier findings
+- Final synthesizer has access to all sources
+
 This enables workflows like:
 - Coder writes code → Tester reads and tests it
 - Writer creates document → Critic reviews it
@@ -197,14 +217,22 @@ Stats endpoint: `GET /auth/me/stats`
 ## Directory Structure
 
 ```
+config/
+└── roles.yaml       # Agent role definitions (YAML)
+
 src/
 ├── agents/          # Agent system, executor, LLM factory
 ├── coordinator/     # Meta-planner, validators
 ├── execution/       # LangGraph builder, state
+│   ├── state.py     # MagenticState with available_artifacts, available_references
+│   ├── nodes.py     # Agent node execution, context building
+│   └── graph_builder.py  # DAG construction
 ├── services/        # MCP, RAG services
+│   └── mcp_client.py     # DEFAULT_SERVERS, role-to-server mapping
 ├── tools/           # Tool manager, web search
 ├── auth/            # Authentication
-└── api.py           # FastAPI endpoints
+├── role_library.py  # Loads roles from YAML
+└── api.py           # FastAPI endpoints (/roles, /roles/reload)
 
 frontend/src/
 ├── components/      # UI components
@@ -212,10 +240,43 @@ frontend/src/
 │   ├── ArtifactPreviewPanel.jsx  # Claude-style file preview
 │   └── WorkflowVisualization.jsx # Execution flow graph
 ├── hooks/           # WebSocket, auth hooks
+│   └── useRoles.js  # Fetch roles from backend API
 ├── store/           # Zustand state
-└── contexts/        # React contexts
+└── contexts/        # React contexts (RolesContext)
 
 docker/
 ├── mcp-gateway/     # MCP configuration
 └── observability/   # Prometheus, Grafana, Loki
 ```
+
+## Role Configuration
+
+Roles are defined in `config/roles.yaml`:
+
+```yaml
+researcher:
+  label: "Researcher"
+  icon: "Search"
+  capabilities:
+    - web_search
+    - analysis
+  mcp_servers:
+    - web-search
+  system_prompt: |
+    You are a research specialist with access to web search...
+```
+
+### Role Properties
+
+| Property | Description |
+|----------|-------------|
+| `label` | Display name in UI |
+| `icon` | Lucide icon name |
+| `capabilities` | List of agent capabilities |
+| `mcp_servers` | MCP servers for this role (filesystem always included) |
+| `system_prompt` | System prompt for the agent |
+
+### API Endpoints
+
+- `GET /roles` — Get all role configurations
+- `POST /roles/reload` — Reload roles from YAML file
