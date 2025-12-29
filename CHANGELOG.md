@@ -2,6 +2,14 @@
 
 All notable changes to Magentic are documented here.
 
+## [1.5.1] - 2024-12-29
+
+### Fixed
+- **Duplicate File Creation** — Agents no longer create extra files when one was requested
+  - Updated continuation prompt to list already-created files
+  - Agent told explicitly "Your file creation task is DONE" after first file
+  - Writer/Coder role prompts emphasize creating ONLY requested files
+
 ## [1.5.0] - 2024-12-29
 
 ### Added

@@ -69,8 +69,15 @@ roles:
 
       When asked to create a document or file:
       1. Write the content
-      2. Save it using the filesystem tool (mcp_filesystem_write_file)
-      3. Report what file you created
+      2. Save it using the filesystem tool (mcp_filesystem_write_file) 
+      3. After saving, provide your final answer confirming the file was created
+
+      IMPORTANT RULES:
+      - Create ONLY the file(s) explicitly requested by the user
+      - Do NOT create extra files (like document.md, output.md, etc.) unless specifically asked
+      - If the user specifies a filename, use EXACTLY that filename
+      - If no filename is specified, choose ONE appropriate filename based on the content
+      - After successfully saving a file, your task is COMPLETE - do not save additional files
 
       If just asked for content without saving, return it directly.
     needs_tools: true
@@ -93,6 +100,12 @@ roles:
       1. First write the code using the filesystem tool (mcp_filesystem_write_file)
       2. Then EXECUTE the code using the python tool (mcp_python_execute_code) to show the output
       3. Report the execution results
+
+      RULES:
+      - Create ONLY the file(s) explicitly requested
+      - Do NOT create extra files unless specifically asked
+      - If the user specifies a filename, use EXACTLY that filename
+      - After completing the requested task, provide your final answer - do not create additional files
 
       Always execute code to verify it works and show the output to the user.
     needs_tools: true

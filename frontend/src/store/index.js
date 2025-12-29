@@ -63,6 +63,13 @@ export const useChatStore = create(
           const response = await fetch(`${API_URL}/chats/${username}/${sessionId}`);
           if (response.ok) {
             const data = await response.json();
+            console.log('[loadChatMessages] Loaded messages:', data.messages?.length, 'for session:', sessionId);
+            // Debug: check if any messages have artifacts
+            data.messages?.forEach((msg, i) => {
+              if (msg.executionData?.artifacts?.length > 0) {
+                console.log(`[loadChatMessages] Message ${i} has ${msg.executionData.artifacts.length} artifacts`);
+              }
+            });
             set((state) => ({
               conversations: state.conversations.map(conv =>
                 conv.id === sessionId
@@ -74,6 +81,9 @@ export const useChatStore = create(
                         content: msg.content,
                         timestamp: msg.timestamp,
                         execution: msg.executionData, // Map to 'execution' for MessageBubble compatibility
+                        // Extract artifacts and references from executionData for display
+                        artifacts: msg.executionData?.artifacts || [],
+                        references: msg.executionData?.references || [],
                       })),
                     }
                   : conv
@@ -155,14 +165,28 @@ export const useChatStore = create(
           ? message.content.slice(0, 50) + (message.content.length > 50 ? '...' : '')
           : null;
         
+        // Get execution data, ensuring artifacts and references are included
+        const executionData = message.executionData || message.execution || null;
+        
         // Normalize message format - use 'execution' for consistency with MessageBubble
+        // Also preserve artifacts and references at message level for display
         const normalizedMessage = {
           id: msgId,
           type: message.type,
           content: message.content,
           timestamp: message.timestamp || new Date(),
-          execution: message.executionData || message.execution || null,
+          execution: executionData,
+          // Preserve artifacts and references - they come from message OR execution
+          artifacts: message.artifacts || executionData?.artifacts || [],
+          references: message.references || executionData?.references || [],
         };
+        
+        // Prepare execution_data for backend - ensure artifacts/references are included
+        const executionDataForBackend = executionData ? {
+          ...executionData,
+          artifacts: message.artifacts || executionData.artifacts || [],
+          references: message.references || executionData.references || [],
+        } : null;
         
         // Update local state
         set((state) => ({
@@ -181,7 +205,7 @@ export const useChatStore = create(
         // Sync with backend if conversation is synced (has chat_ prefix)
         console.log('[addMessage] Checking sync:', { username, activeConversationId, startsWithChat: activeConversationId?.startsWith('chat_') });
         if (username && activeConversationId.startsWith('chat_')) {
-          console.log('[addMessage] Syncing to backend...');
+          console.log('[addMessage] Syncing to backend...', { hasArtifacts: (executionDataForBackend?.artifacts?.length || 0) > 0 });
           try {
             const response = await fetch(`${API_URL}/chats/${activeConversationId}/messages`, {
               method: 'POST',
@@ -189,7 +213,7 @@ export const useChatStore = create(
               body: JSON.stringify({
                 role: message.type,
                 content: message.content,
-                execution_data: message.executionData || message.execution || null,
+                execution_data: executionDataForBackend,
               }),
             });
             console.log('[addMessage] Response status:', response.status);

@@ -251,6 +251,9 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
       if (executionData) {
         executionData.stage = 'complete';
         executionData.output = data.data.output;
+        // Include artifacts and references in execution data for persistence
+        executionData.artifacts = data.data.artifacts || [];
+        executionData.references = data.data.references || [];
       }
 
       // Add the assistant response message immediately (execution stays visible)

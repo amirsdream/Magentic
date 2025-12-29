@@ -955,7 +955,17 @@ IMPORTANT: Keep search queries short and focused."""
                     for r in tool_results
                 ])
                 messages.append(AIMessage(content=f"Tool calls completed. Results:\n\n{tool_results_text}"))
-                messages.append(HumanMessage(content="Continue with your task. If you need to use more tools, call them. If you have all the information needed, provide your final answer."))
+                
+                # Build continuation prompt - include already created files to prevent duplicates
+                continue_prompt = "If you have completed your task, provide your final answer now."
+                if all_artifacts:
+                    created_files = [a.get("name", a.get("path", "")) for a in all_artifacts.values()]
+                    continue_prompt += f"\n\nFiles already created: {', '.join(created_files)}"
+                    continue_prompt += "\nDo NOT create any more files. Your file creation task is DONE."
+                else:
+                    continue_prompt += "\nIf you still need to use tools to complete the EXACT task you were given, call them."
+                continue_prompt += "\nDo NOT repeat actions you have already completed."
+                messages.append(HumanMessage(content=continue_prompt))
             else:
                 # No more tool calls - agent is done
                 logger.info(f"✅ {role.name} completed after {iteration + 1} iteration(s), {total_tool_calls} tool calls")

@@ -127,6 +127,9 @@ function App() {
         type: 'assistant',
         content: data.data.output,
         execution: executionData,
+        // Include artifacts and references for persistence
+        artifacts: data.data.artifacts || [],
+        references: data.data.references || [],
         timestamp: new Date(),
       }, username);
     }

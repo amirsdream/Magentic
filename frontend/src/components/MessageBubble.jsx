@@ -49,108 +49,69 @@ const getLanguageBadgeColor = (language) => {
   return colors[language] || 'bg-gray-500/10 text-gray-600 dark:text-gray-400';
 };
 
-// Artifacts section - shows created files as clickable cards with beautiful design
+// Artifacts section - shows created files as clickable cards with compact design
 const Artifacts = ({ artifacts, onPreview }) => {
   if (!artifacts || artifacts.length === 0) return null;
   
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 5 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.2 }}
-      className="mt-5 pt-5 border-t border-gradient-to-r from-violet-200/50 via-fuchsia-200/50 to-purple-200/50 dark:from-purple-800/30 dark:via-pink-800/30 dark:to-violet-800/30"
+      className="mt-3 pt-3 border-t border-slate-200/50 dark:border-gray-700/30"
     >
-      <div className="flex items-center gap-2 mb-4">
-        <div className="p-1.5 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 dark:from-purple-500 dark:to-pink-500">
-          <FileCode className="w-3.5 h-3.5 text-white" />
-        </div>
-        <span className="text-sm font-semibold text-slate-700 dark:text-gray-300">
-          Created Files
+      <div className="flex items-center gap-1.5 mb-2">
+        <FileCode className="w-3 h-3 text-slate-400 dark:text-gray-500" />
+        <span className="text-xs text-slate-500 dark:text-gray-400">
+          Files
         </span>
-        <span className="text-xs px-2 py-0.5 rounded-full bg-violet-100 dark:bg-purple-900/50 text-violet-600 dark:text-purple-400 font-medium">
+        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-gray-800 text-slate-500 dark:text-gray-400">
           {artifacts.length}
         </span>
       </div>
       
-      <div className="grid grid-cols-1 gap-3">
+      <div className="flex flex-wrap gap-2">
         {artifacts.map((artifact, idx) => {
           const FileIcon = getFileIcon(artifact.language);
           const langColors = {
-            python: 'from-blue-500 to-cyan-500',
-            javascript: 'from-yellow-500 to-orange-500',
-            typescript: 'from-blue-400 to-indigo-500',
-            html: 'from-orange-500 to-red-500',
-            css: 'from-pink-500 to-purple-500',
-            json: 'from-green-500 to-emerald-500',
-            sql: 'from-cyan-500 to-blue-500',
-            markdown: 'from-gray-500 to-slate-500',
-            bash: 'from-green-600 to-lime-500',
-            yaml: 'from-red-400 to-rose-500',
+            python: 'text-blue-500',
+            javascript: 'text-yellow-500',
+            typescript: 'text-blue-400',
+            html: 'text-orange-500',
+            css: 'text-pink-500',
+            json: 'text-green-500',
+            sql: 'text-cyan-500',
+            markdown: 'text-slate-500',
+            bash: 'text-green-600',
+            yaml: 'text-red-400',
           };
-          const gradientColor = langColors[artifact.language?.toLowerCase()] || 'from-violet-500 to-fuchsia-500';
+          const iconColor = langColors[artifact.language?.toLowerCase()] || 'text-violet-500';
           
           return (
             <motion.button
               key={idx}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.1 * idx }}
-              whileHover={{ scale: 1.01, x: 4 }}
-              whileTap={{ scale: 0.99 }}
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.05 * idx }}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
               onClick={() => onPreview(artifact)}
               className={clsx(
-                'group relative flex items-center gap-4 p-4 rounded-2xl text-left w-full',
-                'bg-gradient-to-br from-white to-slate-50 dark:from-gray-800/90 dark:to-gray-900/90',
-                'border border-slate-200/80 dark:border-gray-700/50',
-                'hover:border-violet-300 dark:hover:border-purple-500/50',
-                'hover:shadow-lg hover:shadow-violet-500/10 dark:hover:shadow-purple-500/10',
-                'transition-all duration-300'
+                'group flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left',
+                'bg-slate-50 dark:bg-gray-800/50',
+                'border border-slate-200/60 dark:border-gray-700/40',
+                'hover:border-slate-300 dark:hover:border-gray-600',
+                'hover:bg-slate-100 dark:hover:bg-gray-800',
+                'transition-all duration-200'
               )}
             >
-              {/* Animated gradient background on hover */}
-              <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-violet-500/0 via-fuchsia-500/0 to-purple-500/0 group-hover:from-violet-500/5 group-hover:via-fuchsia-500/5 group-hover:to-purple-500/5 transition-all duration-300 pointer-events-none" />
+              <FileIcon className={clsx('w-3.5 h-3.5', iconColor)} />
               
-              {/* Icon with gradient */}
-              <div className={clsx(
-                'relative p-3 rounded-xl',
-                'bg-gradient-to-br shadow-md',
-                gradientColor
-              )}>
-                <FileIcon className="w-5 h-5 text-white" />
-                <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-green-400 border-2 border-white dark:border-gray-800 animate-pulse" />
-              </div>
+              <span className="text-xs text-slate-600 dark:text-gray-300 truncate max-w-[120px]">
+                {artifact.name}
+              </span>
               
-              <div className="relative flex-1 min-w-0">
-                <div className="font-semibold text-sm text-slate-800 dark:text-white truncate mb-1">
-                  {artifact.name}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={clsx(
-                    'text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide',
-                    getLanguageBadgeColor(artifact.language)
-                  )}>
-                    {artifact.language || 'file'}
-                  </span>
-                  {artifact.path && (
-                    <span className="text-[10px] text-slate-400 dark:text-gray-500 truncate max-w-[150px]">
-                      {artifact.path.split('/').slice(-2).join('/')}
-                    </span>
-                  )}
-                </div>
-              </div>
-              
-              {/* View button */}
-              <div className={clsx(
-                'relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg',
-                'bg-slate-100 dark:bg-gray-700/50',
-                'group-hover:bg-violet-100 dark:group-hover:bg-purple-900/50',
-                'text-slate-500 dark:text-gray-400',
-                'group-hover:text-violet-600 dark:group-hover:text-purple-400',
-                'transition-all duration-200'
-              )}>
-                <Eye className="w-4 h-4" />
-                <span className="text-xs font-medium">View</span>
-              </div>
+              <Eye className="w-3 h-3 text-slate-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity" />
             </motion.button>
           );
         })}
