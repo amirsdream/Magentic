@@ -112,37 +112,132 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
       });
       break;
 
-    case WEBSOCKET_EVENTS.PLAN:
-      console.log('Plan received with agents:', data.data.agents);
-      console.log('Agent IDs in plan:', data.data.agents.map(a => a.agent_id));
+    case WEBSOCKET_EVENTS.THINKING:
+      // Stream thinking content from reasoning models (Qwen3, QwQ, etc.)
       setCurrentExecution((prev) => ({
-        // Preserve query and startedAt from initial state
-        query: prev?.query,
-        startedAt: prev?.startedAt,
-        stage: 'planned',
-        plan: data.data,
-        agents: data.data.agents.map((agent) => ({
-          ...agent,
-          status: AGENT_STATUS.PENDING,
-        })),
-        stageMessage: `Executing ${data.data.total_agents} agents across ${data.data.total_layers} layers`,
+        ...prev,
+        stage: 'thinking',
+        isThinking: true,
+        thinkingContent: (prev?.thinkingContent || '') + data.content,
+        stageMessage: 'Model is reasoning...',
       }));
       break;
 
-    case WEBSOCKET_EVENTS.AGENT_START:
-      console.log('Agent start received:', data.data.agent_id);
+    case WEBSOCKET_EVENTS.PLAN:
+      console.log('📋 PLAN received with agents:', data.data.agents?.map(a => ({ id: a.agent_id, status: a.status })));
       setCurrentExecution((prev) => {
-        if (!prev?.agents) {
-          console.warn('No current execution when agent_start received');
-          return prev;
+        console.log('📋 PLAN handler - prev.agents:', prev?.agents?.map(a => ({ id: a.agent_id, status: a.status })));
+        
+        // Create a map of existing agent states to preserve
+        const existingAgentStates = new Map();
+        if (prev?.agents && Array.isArray(prev.agents)) {
+          prev.agents.forEach(agent => {
+            existingAgentStates.set(agent.agent_id, agent);
+          });
+        }
+        
+        // Normalize status from backend (completed -> complete)
+        const normalizeStatus = (status) => {
+          if (status === 'completed') return AGENT_STATUS.COMPLETE;
+          if (status === 'complete') return AGENT_STATUS.COMPLETE;
+          if (status === 'running') return AGENT_STATUS.RUNNING;
+          if (status === 'pending') return AGENT_STATUS.PENDING;
+          return status || AGENT_STATUS.PENDING;
+        };
+        
+        // Build merged agents list
+        const newPlanAgentIds = new Set(data.data.agents.map(a => a.agent_id));
+        const mergedAgents = [];
+        
+        // First, process all agents from the new plan (preserving existing state)
+        for (const agent of data.data.agents) {
+          const existing = existingAgentStates.get(agent.agent_id);
+          if (existing) {
+            // Preserve existing state - CRITICAL: keep logs, status, input, output, etc.
+            const preservedStatus = (existing.status === AGENT_STATUS.RUNNING || existing.status === AGENT_STATUS.COMPLETE)
+              ? existing.status 
+              : normalizeStatus(agent.status);
+            console.log(`📋 MERGE: ${agent.agent_id} existing=${existing.status} plan=${agent.status} → ${preservedStatus}`);
+            mergedAgents.push({
+              ...existing,  // Start with ALL existing data
+              // Only update non-state metadata from plan
+              layer: agent.layer ?? existing.layer,
+              task: agent.task || existing.task,
+              role: agent.role || existing.role,
+              status: preservedStatus,
+            });
+          } else {
+            // New agent from plan
+            console.log(`📋 NEW: ${agent.agent_id} status=${normalizeStatus(agent.status)}`);
+            mergedAgents.push({
+              ...agent,
+              status: normalizeStatus(agent.status),
+              logs: agent.logs || [],
+            });
+          }
+        }
+        
+        // Also keep any agents that were in prev but NOT in new plan (edge case)
+        for (const [agentId, agent] of existingAgentStates) {
+          if (!newPlanAgentIds.has(agentId)) {
+            console.log(`📋 KEEP orphan: ${agentId} status=${agent.status}`);
+            mergedAgents.push(agent);
+          }
+        }
+        
+        console.log('📋 RESULT:', mergedAgents.map(a => ({ id: a.agent_id, status: a.status })));
+        
+        return {
+          ...prev,
+          stage: 'planned',
+          plan: data.data,
+          agents: mergedAgents,
+          stageMessage: `Executing ${data.data.total_agents} agents across ${data.data.total_layers} layers`,
+        };
+      });
+      break;
+
+    case WEBSOCKET_EVENTS.AGENT_START:
+      console.log('🚀 Agent start received:', data.data.agent_id);
+      setCurrentExecution((prev) => {
+        // If no agents yet (null or empty), create the agent on-the-fly
+        if (!prev?.agents || !Array.isArray(prev.agents) || prev.agents.length === 0) {
+          console.log('🚀 Creating agent on-the-fly for agent_start:', data.data.agent_id);
+          return {
+            ...prev,
+            agents: [{
+              agent_id: data.data.agent_id,
+              role: data.data.role || 'coordinator',
+              task: data.data.task || 'Processing...',
+              layer: data.data.layer ?? 0,
+              status: AGENT_STATUS.RUNNING,
+              input: data.data.input,
+              startTime: Date.now(),
+              logs: [],
+            }],
+          };
         }
 
         const agentIds = prev.agents.map(a => a.agent_id);
-        console.log('Looking for agent_id:', data.data.agent_id, 'in:', agentIds);
+        console.log('🚀 Looking for agent_id:', data.data.agent_id, 'in:', agentIds);
         
         const found = agentIds.includes(data.data.agent_id);
         if (!found) {
-          console.error('Agent ID not found in agents list!', data.data.agent_id);
+          // Agent not in list - add it
+          console.log('🚀 Agent not found, adding:', data.data.agent_id);
+          return {
+            ...prev,
+            agents: [...prev.agents, {
+              agent_id: data.data.agent_id,
+              role: data.data.role || 'agent',
+              task: data.data.task || 'Processing...',
+              layer: data.data.layer ?? 0,
+              status: AGENT_STATUS.RUNNING,
+              input: data.data.input,
+              startTime: Date.now(),
+              logs: [],
+            }],
+          };
         }
 
         const updatedAgents = prev.agents.map((agent) =>
@@ -156,7 +251,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
             : agent
         );
         
-        console.log('Updated agents after start:', updatedAgents.map(a => ({ id: a.agent_id, status: a.status })));
+        console.log('🚀 Updated agents after start:', updatedAgents.map(a => ({ id: a.agent_id, status: a.status })));
 
         return {
           ...prev,
@@ -166,27 +261,67 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
       break;
 
     case WEBSOCKET_EVENTS.AGENT_COMPLETE:
-      console.log('Agent complete received:', data.data.agent_id);
+      console.log('✅ AGENT_COMPLETE received:', data.data.agent_id);
       setCurrentExecution((prev) => {
-        if (!prev?.agents) {
-          console.warn('No current execution or agents to update!');
-          return prev;
+        console.log('✅ AGENT_COMPLETE handler - prev.agents:', prev?.agents?.map(a => ({ id: a.agent_id, status: a.status })));
+        
+        // If no agents yet, create the agent on-the-fly as completed
+        if (!prev?.agents || !Array.isArray(prev.agents) || prev.agents.length === 0) {
+          console.log('✅ Creating agent on-the-fly for agent_complete:', data.data.agent_id);
+          return {
+            ...prev,
+            agents: [{
+              agent_id: data.data.agent_id,
+              role: data.data.role || 'coordinator',
+              task: 'Completed',
+              layer: 0,
+              status: AGENT_STATUS.COMPLETE,
+              input: data.data.input,
+              output: data.data.output,
+              output_length: data.data.output_length,
+              tool_calls: data.data.tool_calls,
+              token_usage: data.data.token_usage,
+              artifacts: data.data.artifacts || [],
+              endTime: Date.now(),
+              logs: [],
+            }],
+          };
         }
 
         const agentIds = prev.agents.map(a => a.agent_id);
-        console.log('Looking for agent_id:', data.data.agent_id, 'in:', agentIds);
-        
         const found = agentIds.includes(data.data.agent_id);
+        
         if (!found) {
-          console.error('Agent ID not found in agents list!', data.data.agent_id);
+          // Add agent as completed
+          console.log('✅ Agent not found, adding as completed:', data.data.agent_id);
+          return {
+            ...prev,
+            agents: [...prev.agents, {
+              agent_id: data.data.agent_id,
+              role: data.data.role || 'agent',
+              task: 'Completed',
+              layer: data.data.layer || 0,
+              status: AGENT_STATUS.COMPLETE,
+              input: data.data.input,
+              output: data.data.output,
+              output_length: data.data.output_length,
+              tool_calls: data.data.tool_calls,
+              token_usage: data.data.token_usage,
+              artifacts: data.data.artifacts || [],
+              endTime: Date.now(),
+              logs: [],
+            }],
+          };
         }
 
+        // Update existing agent
+        console.log('✅ Marking agent complete:', data.data.agent_id);
         const updatedAgents = prev.agents.map((agent) =>
           agent.agent_id === data.data.agent_id
             ? {
-                ...agent,
+                ...agent,  // Preserve logs and other state
                 status: AGENT_STATUS.COMPLETE,
-                input: data.data.input,
+                input: data.data.input || agent.input,
                 output: data.data.output,
                 output_length: data.data.output_length,
                 tool_calls: data.data.tool_calls,
@@ -197,8 +332,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
             : agent
         );
         
-        console.log('Updated agents after complete:', updatedAgents.map(a => ({ id: a.agent_id, status: a.status })));
-
+        console.log('✅ RESULT:', updatedAgents.map(a => ({ id: a.agent_id, status: a.status })));
         return {
           ...prev,
           agents: updatedAgents,
@@ -208,31 +342,55 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
 
     case WEBSOCKET_EVENTS.AGENT_LOG:
       // Handle streaming log entries for an agent
-      console.log('📝 AGENT_LOG received:', data.data);
+      // Each log is added to the agent's logs array - groupLogs will consolidate thinking
       setCurrentExecution((prev) => {
-        if (!prev?.agents) {
-          console.warn('No agents to update for log');
-          return prev;
+        const logType = data.data.log_type;
+        const agentId = data.data.agent_id;
+        const content = data.data.content;
+        const metadata = data.data.metadata;
+        const timestamp = data.data.timestamp || Date.now();
+
+        const newLog = { timestamp, type: logType, content, metadata };
+
+        // If no agents yet, create the agent on-the-fly
+        if (!prev?.agents || prev.agents.length === 0) {
+          return {
+            ...prev,
+            agents: [{
+              agent_id: agentId,
+              role: 'coordinator',
+              task: 'Processing...',
+              layer: 0,
+              status: AGENT_STATUS.RUNNING,
+              logs: [newLog],
+            }],
+          };
         }
 
+        // Check if agent exists
+        const agentExists = prev.agents.some(a => a.agent_id === agentId);
+        if (!agentExists) {
+          return {
+            ...prev,
+            agents: [...prev.agents, {
+              agent_id: agentId,
+              role: 'agent',
+              task: 'Processing...',
+              layer: 0,
+              status: AGENT_STATUS.RUNNING,
+              logs: [newLog],
+            }],
+          };
+        }
+
+        // Add log to agent
         const updatedAgents = prev.agents.map((agent) =>
-          agent.agent_id === data.data.agent_id
-            ? {
-                ...agent,
-                logs: [...(agent.logs || []), {
-                  timestamp: data.data.timestamp || Date.now(),
-                  type: data.data.log_type, // 'llm_start', 'llm_token', 'llm_end', 'tool_start', 'tool_end', 'info'
-                  content: data.data.content,
-                  metadata: data.data.metadata,
-                }],
-              }
+          agent.agent_id === agentId
+            ? { ...agent, logs: [...(agent.logs || []), newLog] }
             : agent
         );
 
-        return {
-          ...prev,
-          agents: updatedAgents,
-        };
+        return { ...prev, agents: updatedAgents };
       });
       break;
 

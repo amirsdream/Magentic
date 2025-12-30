@@ -189,7 +189,7 @@ async def startup_event():
                 chunk_overlap=config.rag_chunk_overlap,
                 embedding_provider=config.rag_embedding_provider,
                 embedding_model=config.rag_embedding_model,
-                ollama_base_url=config.ollama_base_url,
+                ollama_base_url=config.rag_ollama_base_url,
             )
             logger.info("✓ RAG service initialized")
         except Exception as e:
@@ -662,6 +662,7 @@ async def websocket_endpoint(websocket: WebSocket):
         # Handle query message
         query = message_data.get("query", "")
         session_id = message_data.get("session_id", "")
+        logger.info(f"📝 Received query with session_id='{session_id}'")
         if not query:
             await websocket.send_json({"type": "error", "message": "Empty query"})
             return
@@ -693,7 +694,10 @@ async def websocket_endpoint(websocket: WebSocket):
         async def run_query():
             nonlocal current_query, current_session_id
             try:
-                await process_query_with_updates(websocket, query, username, cancel_event)
+                await process_query_with_updates(
+                    websocket, query, username, cancel_event, 
+                    session_id=current_session_id
+                )
             except asyncio.CancelledError:
                 logger.info("Query processing cancelled")
                 # Don't send stopped message here - it's sent by handle_message
@@ -745,7 +749,8 @@ async def process_query_with_updates(
     websocket: WebSocket, 
     query: str, 
     username: str = "guest",
-    cancel_event: Optional[asyncio.Event] = None
+    cancel_event: Optional[asyncio.Event] = None,
+    session_id: Optional[str] = None
 ):
     """Process query and send real-time updates via WebSocket."""
     try:
@@ -756,28 +761,113 @@ async def process_query_with_updates(
         # Reset token tracker for this execution with LLM info
         reset_tracker(provider=config.llm_provider, model=config.get_model_name())
 
+        # Load and set session-specific conversation history
+        if session_id:
+            try:
+                from .database import SessionLocal
+                db = SessionLocal()
+                try:
+                    messages = get_chat_messages(db, session_id)
+                    logger.info(f"📚 Raw messages from DB for session {session_id}: {len(messages)} messages")
+                    for i, m in enumerate(messages):
+                        logger.info(f"📚   [{i}] {m.role}: {m.content[:80]}...")
+                    # Convert to conversation history format (cast to str for type safety)
+                    history: list[dict[str, str]] = [
+                        {"role": str(m.role), "content": str(m.content)}
+                        for m in messages
+                    ]
+                    meta_system.load_session_history(session_id, history)
+                    meta_system.set_session(session_id)
+                    logger.info(f"📚 Loaded {len(history)} messages from session {session_id}")
+                    if history:
+                        logger.info(f"📚 First message: {history[0]['role']}: {history[0]['content'][:100]}...")
+                        logger.info(f"📚 Last message: {history[-1]['role']}: {history[-1]['content'][:100]}...")
+                    logger.info(f"📚 Current conversation_history length: {len(meta_system.conversation_history)}")
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.warning(f"Failed to load session history: {e}", exc_info=True)
+                meta_system.set_session(None)
+        else:
+            meta_system.set_session(None)
+            logger.info("📚 No session_id provided, using empty conversation history")
+
         # Check cancellation before starting
         if is_cancelled():
             raise asyncio.CancelledError("Execution cancelled before start")
 
-        # Send planning stage
-        await websocket.send_json(
-            {"type": "stage", "stage": "planning", "message": "AI Coordinator analyzing query..."}
-        )
+        # === COORDINATOR AS LAYER 0 ===
+        # Send coordinator as the first "agent" in the flow
+        coordinator_agent_id = "coordinator_0"
+        
+        # Send initial plan with just coordinator (Layer 0)
+        await websocket.send_json({
+            "type": "plan",
+            "data": {
+                "description": "Analyzing query and creating execution plan...",
+                "agents": [{
+                    "agent_id": coordinator_agent_id,
+                    "role": "coordinator",
+                    "task": "Analyze query and determine which specialized agents to deploy",
+                    "layer": 0,
+                    "status": "pending",
+                }],
+                "total_agents": 1,
+                "total_layers": 1,
+                "is_planning": True,  # Flag to indicate more agents may be added
+            },
+        })
 
-        # Create execution plan
-        plan = meta_system.coordinator.create_execution_plan(query)
+        # Send coordinator start
+        await websocket.send_json({
+            "type": "agent_start",
+            "data": {
+                "agent_id": coordinator_agent_id,
+                "role": "coordinator",
+                "task": "Analyze query and create execution plan",
+                "input": query[:500],
+            },
+        })
+
+        # Build conversation context for the coordinator
+        conversation_context = meta_system._build_context()
+        logger.info(f"📚 Coordinator context length: {len(conversation_context)} chars")
+        logger.info(f"📚 Coordinator context content: {conversation_context[:500]}..." if conversation_context else "📚 NO CONVERSATION CONTEXT - history is empty")
+        logger.info(f"📚 meta_system.conversation_history: {meta_system.conversation_history}")
+
+        # Create execution plan - use streaming for thinking models
+        if config.is_thinking_model():
+            # Use streaming planning to show thinking process
+            async def thinking_callback(content: str):
+                await websocket.send_json({
+                    "type": "agent_log",
+                    "data": {
+                        "agent_id": coordinator_agent_id,
+                        "log_type": "thinking",
+                        "content": content,
+                        "metadata": {},
+                    },
+                })
+            
+            plan = await meta_system.coordinator.create_execution_plan_with_thinking(
+                query, 
+                conversation_history=conversation_context,
+                thinking_callback=thinking_callback
+            )
+        else:
+            # Regular planning without thinking stream
+            plan = meta_system.coordinator.create_execution_plan(query, conversation_context)
 
         # Check cancellation after planning
         if is_cancelled():
             raise asyncio.CancelledError("Execution cancelled after planning")
 
-        # Compute layers for each agent
+        # Compute layers for each agent (offset by 1 since coordinator is layer 0)
         layers = plan.get_execution_layers()
         agent_to_layer = {}
         for layer_idx, layer_agents in enumerate(layers):
             for agent_idx in layer_agents:
-                agent_to_layer[agent_idx] = layer_idx
+                agent_to_layer[agent_idx] = layer_idx + 1  # +1 because coordinator is layer 0
 
         # Convert plan to dict for database storage
         plan_dict = {
@@ -787,13 +877,13 @@ async def process_query_with_updates(
             "total_layers": len(layers),
         }
 
-        # Build agents data with agent_ids
+        # Build agents data with agent_ids (layer numbers offset by 1)
         agents_data = [
             {
                 "agent_id": f"{agent.get('role')}_{idx}",
                 "role": agent.get("role"),
                 "task": agent.get("task"),
-                "layer": agent_to_layer.get(idx, 0),
+                "layer": agent_to_layer.get(idx, 1),  # Default to layer 1
             }
             for idx, agent in enumerate(plan.agents)
         ]
@@ -801,18 +891,48 @@ async def process_query_with_updates(
         # Log agent IDs being sent
         logger.info(f"Plan agent IDs: {[a['agent_id'] for a in agents_data]}")
 
-        # Send plan
-        await websocket.send_json(
+        # Get coordinator token usage from tracker
+        tracker = get_tracker()
+        coordinator_tokens = tracker.planning_tokens.to_dict()
+        logger.info(f"💰 Coordinator tokens: {coordinator_tokens}")
+
+        # Send coordinator complete with plan description as output
+        await websocket.send_json({
+            "type": "agent_complete",
+            "data": {
+                "agent_id": coordinator_agent_id,
+                "role": "coordinator",
+                "input": query[:500],
+                "output": f"Plan: {plan.description}\n\nDeploying {len(plan.agents)} specialized agents across {len(layers)} execution layers.",
+                "output_length": len(plan.description),
+                "tool_calls": [],
+                "token_usage": coordinator_tokens,
+            },
+        })
+
+        # Send updated plan with all agents (coordinator + execution agents)
+        all_agents_data = [
             {
-                "type": "plan",
-                "data": {
-                    "description": plan.description,
-                    "agents": agents_data,
-                    "total_agents": len(plan.agents),
-                    "total_layers": len(layers),
-                },
+                "agent_id": coordinator_agent_id,
+                "role": "coordinator",
+                "task": "Analyze query and create execution plan",
+                "layer": 0,
+                "status": "complete",  # Use 'complete' to match frontend constant
             }
-        )
+        ] + [{
+            **agent,
+            "status": "pending",  # New agents start as pending
+        } for agent in agents_data]
+
+        await websocket.send_json({
+            "type": "plan",
+            "data": {
+                "description": plan.description,
+                "agents": all_agents_data,
+                "total_agents": len(plan.agents) + 1,  # +1 for coordinator
+                "total_layers": len(layers) + 1,  # +1 for coordinator layer
+            },
+        })
 
         # Send execution stage
         await websocket.send_json(
@@ -852,6 +972,13 @@ async def process_query_with_updates(
                 if not user.is_guest:  # type: ignore
                     save_conversation(db, user.id, query, final_output, plan_dict, session_id, token_summary)  # type: ignore
                     logger.info(f"Saved conversation for user {username}")
+                    
+                    # Also save to ChatMessage table for session history
+                    # This ensures conversation history is available for future queries
+                    if session_id:
+                        add_chat_message(db, session_id, "user", query)
+                        add_chat_message(db, session_id, "assistant", final_output, {"token_usage": token_summary})
+                        logger.info(f"Saved messages to chat session {session_id}")
                 else:
                     logger.info(f"Skipped saving conversation for guest user {username}")
             finally:
@@ -1071,7 +1198,7 @@ async def execute_with_progress(
         return result
 
     # Temporarily replace the method
-    meta_system.execute_agent_for_langgraph = execute_with_notification
+    meta_system.execute_agent_for_langgraph = execute_with_notification  # type: ignore[method-assign]
 
     try:
         # Pass the SAME plan to executor to ensure consistent agent IDs

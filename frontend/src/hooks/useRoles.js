@@ -45,7 +45,9 @@ const ICON_MAP = {
 };
 
 // Default fallback config when backend is unavailable
+// Include coordinator so it shows correctly even before roles are fetched
 const DEFAULT_ROLE_CONFIG = {
+  coordinator: { icon: Layers, label: 'Coordinator' },
   default: { icon: Bot, label: 'Agent' },
 };
 

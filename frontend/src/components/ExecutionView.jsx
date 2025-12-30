@@ -40,25 +40,23 @@ function ExecutionView({
   // Determine if we should show avatar (only for live view in chat)
   const shouldShowAvatar = showAvatar !== null ? showAvatar : isLive;
 
-  // Loading state - waiting for backend to respond with plan
-  const isInitializing = execution?.isLoading && !execution?.plan;
-
   // Get token usage
   const tokenUsage = execution?.token_usage;
   const hasTokens = tokenUsage?.total?.total_tokens > 0;
   const hasCost = tokenUsage?.total?.total_cost > 0;
   const costFormatted = tokenUsage?.total?.cost_formatted || '$0.00';
 
-  // Count agents
+  // Count agents (default to 1 for coordinator if no agents yet)
+  const agentCount = execution?.agents?.length || 1;
   const completedAgents = execution?.agents?.filter(a => a.status === 'complete' || a.status === 'completed').length || 0;
   const stoppedAgents = execution?.agents?.filter(a => a.status === 'stopped').length || 0;
   const pendingAgents = execution?.agents?.filter(a => a.status === 'pending').length || 0;
-  const totalAgents = execution?.plan?.total_agents || 0;
+  const totalAgents = execution?.plan?.total_agents || agentCount;
   const runningAgents = execution?.agents?.filter(a => a.status === 'running').length || 0;
-  const totalLayers = execution?.plan?.total_layers || 0;
+  const totalLayers = execution?.plan?.total_layers || 1;
 
-  // No execution data
-  if (!execution?.plan && !isInitializing) {
+  // No execution data at all
+  if (!execution) {
     return null;
   }
 
@@ -136,9 +134,7 @@ function ExecutionView({
                   ? 'Execution Stopped'
                   : isComplete 
                     ? 'Execution Complete' 
-                    : isInitializing 
-                      ? 'Processing Query' 
-                      : 'Executing Agents'}
+                    : 'Executing Workflow'}
               </span>
               {!isComplete && !isStopped && (
                 <span className="flex gap-1">
@@ -151,11 +147,7 @@ function ExecutionView({
             <p className="text-sm text-slate-600 dark:text-gray-400">
               {isStopped
                 ? `${completedAgents} completed${stoppedAgents > 0 ? ` • ${stoppedAgents} stopped` : ''}${pendingAgents > 0 ? ` • ${pendingAgents} skipped` : ''}`
-                : isInitializing 
-                  ? (execution?.stageMessage || 'Analyzing and planning execution...')
-                  : execution?.plan 
-                    ? `${completedAgents}/${totalAgents} agents${runningAgents > 0 ? ` • ${runningAgents} running` : ''} • ${totalLayers} layers`
-                    : execution?.stageMessage
+                : `${completedAgents}/${totalAgents} agents${runningAgents > 0 ? ` • ${runningAgents} running` : ''} • ${totalLayers} layer${totalLayers !== 1 ? 's' : ''}`
               }
             </p>
           </div>

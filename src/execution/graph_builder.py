@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime
-from typing import Dict, Any, List, TYPE_CHECKING
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
 from langgraph.graph import StateGraph, END, START
 from langgraph.graph.state import CompiledStateGraph
@@ -128,6 +128,10 @@ class MagenticGraphBuilder:
 
         Returns:
             Initial MagenticState with query and empty collections
+            
+        Note: The conversation_history in state tracks execution steps (agent outputs),
+        NOT user/assistant session messages. Session history is only used by the
+        Meta Coordinator during planning.
         """
         session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
@@ -139,7 +143,7 @@ class MagenticGraphBuilder:
             total_layers=self.total_layers,
             agent_to_layer=self.agent_to_layer,
             messages=[],
-            conversation_history=[],
+            conversation_history=[],  # Tracks execution steps, not session history
             available_artifacts={},
             available_references=[],
             session_id=session_id,

@@ -167,8 +167,9 @@ def create_agent_node(
                 source_agent = ref.get("source_agent", "unknown")
                 refs_context += f"\n{i}. [{title}]({url})"
                 refs_context += f"\n   Source: {source_agent}"
-                if ref.get("snippet"):
-                    refs_context += f"\n   Snippet: {ref.get('snippet')[:200]}..."
+                snippet = ref.get("snippet")
+                if snippet:
+                    refs_context += f"\n   Snippet: {snippet[:200]}..."
             refs_context += "\n\nYou may cite these references in your response if relevant."
             refs_context += "\n======================================="
             context_parts.append(refs_context)
@@ -183,8 +184,7 @@ def create_agent_node(
         try:
             console.print(f"  [dim]Task: {task[:80]}...[/dim]")
 
-            conversation_history = state.get("conversation_history", [])
-
+            # Note: Agents do NOT receive conversation history - only the coordinator has it
             result = await meta_system.execute_agent_for_langgraph(
                 agent_id=agent_id,
                 role=role,
@@ -195,7 +195,6 @@ def create_agent_node(
                 total_layers=total_layers,
                 agent_number=agent_idx + 1,
                 total_agents=total_agents,
-                conversation_history=conversation_history,
             )
 
             output_content = (

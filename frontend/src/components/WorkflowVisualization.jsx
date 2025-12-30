@@ -2,7 +2,7 @@
  * Workflow Visualization - GitHub Actions style execution flow
  * Real-time visualization of agent execution with status updates
  */
-import React, { useState, useEffect, useMemo, useCallback, createContext, useContext } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, createContext, useContext, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -52,7 +52,10 @@ const useRolesContext = () => {
   // Return default if context not available
   if (!context) {
     return {
-      getRole: (roleName) => DEFAULT_ROLE_CONFIG.default,
+      getRole: (roleName) => {
+        const normalized = roleName?.toLowerCase().replace(/\s+/g, '_');
+        return DEFAULT_ROLE_CONFIG[normalized] || DEFAULT_ROLE_CONFIG.default;
+      },
       roles: DEFAULT_ROLE_CONFIG,
       loading: false,
     };
@@ -62,6 +65,7 @@ const useRolesContext = () => {
 
 // Default fallback config when backend is unavailable
 const DEFAULT_ROLE_CONFIG = {
+  coordinator: { icon: Layers, label: 'Coordinator' },  // Always show coordinator correctly
   default: { icon: Bot, label: 'Agent' },
 };
 
@@ -102,6 +106,378 @@ function formatDuration(ms) {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
   return `${minutes}m ${remainingSeconds}s`;
+}
+
+// ============================================
+// ACTIVITY LOG GROUPS - GitLab-style expandable logs
+// ============================================
+
+// Group logs into logical sections (tool calls, LLM calls, thinking)
+function groupLogs(logs) {
+  const groups = [];
+  let currentGroup = null;
+  
+  // Helper to close current group
+  const closeCurrentGroup = () => {
+    if (currentGroup) {
+      // Mark thinking groups as complete when closed
+      if (currentGroup.type === 'thinking') {
+        currentGroup.status = 'complete';
+      }
+      currentGroup = null;
+    }
+  };
+  
+  logs.forEach((log, idx) => {
+    // Start a new group for specific events
+    if (log.type === 'info') {
+      closeCurrentGroup();
+      groups.push({
+        type: 'info',
+        title: log.content,
+        timestamp: log.timestamp,
+        logs: [log],
+        status: 'complete'
+      });
+    } else if (log.type === 'llm_start') {
+      closeCurrentGroup();
+      currentGroup = {
+        type: 'llm',
+        title: log.content,
+        timestamp: log.timestamp,
+        logs: [log],
+        metadata: log.metadata,
+        status: 'running'
+      };
+      groups.push(currentGroup);
+    } else if (log.type === 'thinking') {
+      // Consolidate ALL thinking logs into ONE group
+      const thinkingContent = log.metadata?.content || log.content;
+      
+      // Find existing thinking group
+      let thinkingGroup = groups.find(g => g.type === 'thinking');
+      if (thinkingGroup) {
+        // Append to existing
+        thinkingGroup.thinking += thinkingContent;
+      } else {
+        // Create single thinking group
+        groups.push({
+          type: 'thinking',
+          title: 'Reasoning',
+          thinking: thinkingContent,
+          timestamp: log.timestamp,
+          logs: [log],
+          status: 'running'
+        });
+      }
+    } else if (log.type === 'llm_end') {
+      if (currentGroup?.type === 'llm') {
+        currentGroup.logs.push(log);
+        currentGroup.status = 'complete';
+        currentGroup.duration = log.metadata?.duration;
+        currentGroup.endTimestamp = log.timestamp;
+        // Check if has_thinking flag is set but we didn't get thinking content
+        if (log.metadata?.has_thinking && !currentGroup.thinking) {
+          currentGroup.thinking = '(Thinking content was processed)';
+        }
+      }
+      currentGroup = null;
+    } else if (log.type === 'tool_start') {
+      closeCurrentGroup();
+      currentGroup = {
+        type: 'tool',
+        title: log.content,
+        toolName: log.metadata?.tool_name || 'Tool',
+        args: log.metadata?.args,
+        timestamp: log.timestamp,
+        logs: [log],
+        status: 'running'
+      };
+      groups.push(currentGroup);
+    } else if (log.type === 'tool_end') {
+      if (currentGroup?.type === 'tool') {
+        currentGroup.logs.push(log);
+        currentGroup.status = 'complete';
+        currentGroup.result = log.metadata?.result;
+        currentGroup.duration = log.metadata?.duration;
+        currentGroup.endTimestamp = log.timestamp;
+      }
+      currentGroup = null;
+    } else if (log.type === 'error') {
+      if (currentGroup) {
+        currentGroup.logs.push(log);
+        currentGroup.status = 'error';
+        currentGroup.error = log.metadata?.error || log.content;
+        currentGroup = null;
+      } else {
+        groups.push({
+          type: 'error',
+          title: log.content,
+          timestamp: log.timestamp,
+          logs: [log],
+          error: log.metadata?.error || log.content,
+          status: 'error'
+        });
+      }
+    } else if (log.type === 'warning') {
+      closeCurrentGroup();
+      groups.push({
+        type: 'warning',
+        title: log.content,
+        timestamp: log.timestamp,
+        logs: [log],
+        status: 'warning'
+      });
+    } else if (currentGroup) {
+      // Add to current group
+      currentGroup.logs.push(log);
+    } else {
+      // Standalone log
+      groups.push({
+        type: 'info',
+        title: log.content,
+        timestamp: log.timestamp,
+        logs: [log],
+        status: 'complete'
+      });
+    }
+  });
+  
+  return groups;
+}
+
+// Single expandable log group
+function LogGroup({ group, index, defaultExpanded = false }) {
+  // Expand while running, collapse when complete
+  const [expanded, setExpanded] = useState(group.status === 'running');
+  
+  // Auto-collapse when status changes from running to complete
+  useEffect(() => {
+    if (group.status === 'running') {
+      setExpanded(true);
+    } else if (group.status === 'complete' && group.type === 'thinking') {
+      // Auto-collapse thinking when done
+      setExpanded(false);
+    }
+  }, [group.status, group.type]);
+  
+  // Ref for auto-scrolling thinking content
+  const thinkingRef = useRef(null);
+  
+  // Auto-scroll thinking content when it updates (streaming)
+  useEffect(() => {
+    if (thinkingRef.current && group.status === 'running') {
+      thinkingRef.current.scrollTop = thinkingRef.current.scrollHeight;
+    }
+  }, [group.thinking, group.status]);
+  
+  const formatTime = (ts) => new Date(ts).toLocaleTimeString('en-US', { 
+    hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' 
+  });
+  
+  const typeConfig = {
+    llm: { 
+      icon: Sparkles, 
+      color: 'text-purple-600 dark:text-purple-400', 
+      bg: 'bg-purple-50 dark:bg-purple-500/10',
+      border: 'border-purple-200 dark:border-purple-500/30'
+    },
+    tool: { 
+      icon: Wrench, 
+      color: 'text-amber-600 dark:text-amber-400', 
+      bg: 'bg-amber-50 dark:bg-amber-500/10',
+      border: 'border-amber-200 dark:border-amber-500/30'
+    },
+    thinking: { 
+      icon: Brain, 
+      color: 'text-cyan-600 dark:text-cyan-400', 
+      bg: 'bg-cyan-50 dark:bg-cyan-500/10',
+      border: 'border-cyan-200 dark:border-cyan-500/30'
+    },
+    info: { 
+      icon: MessageSquare, 
+      color: 'text-blue-600 dark:text-blue-400', 
+      bg: 'bg-blue-50 dark:bg-blue-500/10',
+      border: 'border-blue-200 dark:border-blue-500/30'
+    },
+    error: { 
+      icon: AlertCircle, 
+      color: 'text-red-600 dark:text-red-400', 
+      bg: 'bg-red-50 dark:bg-red-500/10',
+      border: 'border-red-200 dark:border-red-500/30'
+    },
+    warning: { 
+      icon: AlertCircle, 
+      color: 'text-orange-600 dark:text-orange-400', 
+      bg: 'bg-orange-50 dark:bg-orange-500/10',
+      border: 'border-orange-200 dark:border-orange-500/30'
+    },
+  };
+  
+  const config = typeConfig[group.type] || typeConfig.info;
+  const Icon = config.icon;
+  // Check if there's expandable content - only thinking, args, result, error
+  const hasExpandableContent = group.thinking || group.args || group.result || group.error;
+  
+  return (
+    <div className={clsx('rounded-lg border', config.border, config.bg)}>
+      {/* Group header - clickable to expand */}
+      <button
+        onClick={() => hasExpandableContent && setExpanded(!expanded)}
+        className={clsx(
+          'w-full flex items-center gap-2 px-3 py-2 text-left transition-colors rounded-lg',
+          hasExpandableContent ? 'hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer' : 'cursor-default'
+        )}
+      >
+        {/* Expand/collapse icon */}
+        {hasExpandableContent ? (
+          <ChevronRight className={clsx(
+            'w-3.5 h-3.5 text-slate-400 dark:text-gray-500 transition-transform flex-shrink-0',
+            expanded && 'rotate-90'
+          )} />
+        ) : (
+          <span className="w-3.5 flex-shrink-0" />
+        )}
+        
+        {/* Type icon */}
+        <Icon className={clsx('w-3.5 h-3.5 flex-shrink-0', config.color)} />
+        
+        {/* Title */}
+        <span className={clsx('flex-1 truncate text-xs font-medium', config.color)}>
+          {group.title}
+        </span>
+        
+        {/* Status indicator */}
+        {group.status === 'running' && (
+          <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin flex-shrink-0" />
+        )}
+        {group.status === 'complete' && group.duration && (
+          <span className="text-slate-400 dark:text-gray-500 text-[10px] flex-shrink-0">
+            {group.duration.toFixed(1)}s
+          </span>
+        )}
+        {group.status === 'error' && (
+          <AlertCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+        )}
+        
+        {/* Timestamp */}
+        <span className="text-slate-400 dark:text-gray-500 text-[10px] flex-shrink-0">
+          {formatTime(group.timestamp)}
+        </span>
+      </button>
+      
+      {/* Expanded content */}
+      <AnimatePresence>
+        {expanded && hasExpandableContent && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden"
+          >
+            <div className="px-3 pb-3 pt-1 space-y-2 ml-7">
+              {/* Tool Arguments */}
+              {group.args && (
+                <div className="rounded-md bg-slate-100 dark:bg-gray-800/50 p-2 border border-slate-200 dark:border-gray-700/50">
+                  <div className="text-[10px] text-amber-600 dark:text-amber-400 mb-1 font-semibold uppercase tracking-wide">Arguments</div>
+                  <pre className="text-[11px] text-slate-600 dark:text-gray-300 whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono">
+                    {typeof group.args === 'string' ? group.args : JSON.stringify(group.args, null, 2)}
+                  </pre>
+                </div>
+              )}
+              
+              {/* Thinking content */}
+              {group.thinking && (
+                <div className="rounded-md bg-cyan-50 dark:bg-cyan-900/20 p-2 border border-cyan-200 dark:border-cyan-500/30">
+                  <div className="text-[10px] text-cyan-600 dark:text-cyan-400 mb-1 font-semibold uppercase tracking-wide flex items-center gap-1">
+                    <Brain className="w-3 h-3" /> Model Reasoning
+                    {group.status === 'running' && (
+                      <Loader2 className="w-3 h-3 animate-spin ml-1" />
+                    )}
+                  </div>
+                  <pre 
+                    ref={thinkingRef}
+                    className="text-[11px] text-cyan-700 dark:text-cyan-200/80 whitespace-pre-wrap break-words max-h-64 overflow-y-auto scroll-smooth"
+                  >
+                    {group.thinking}
+                    {group.status === 'running' && <span className="animate-pulse">▊</span>}
+                  </pre>
+                </div>
+              )}
+              
+              {/* Tool Result */}
+              {group.result && (
+                <div className="rounded-md bg-emerald-50 dark:bg-emerald-900/20 p-2 border border-emerald-200 dark:border-emerald-500/30">
+                  <div className="text-[10px] text-emerald-600 dark:text-emerald-400 mb-1 font-semibold uppercase tracking-wide">Result</div>
+                  <pre className="text-[11px] text-emerald-700 dark:text-emerald-200/80 whitespace-pre-wrap break-all max-h-48 overflow-y-auto font-mono">
+                    {group.result}
+                  </pre>
+                </div>
+              )}
+              
+              {/* Error content */}
+              {group.error && (
+                <div className="rounded-md bg-red-50 dark:bg-red-500/10 p-2 border border-red-200 dark:border-red-500/30">
+                  <div className="text-[10px] text-red-600 dark:text-red-400 mb-1 font-semibold uppercase tracking-wide">Error</div>
+                  <pre className="text-[11px] text-red-600 dark:text-red-300 whitespace-pre-wrap break-all font-mono">
+                    {group.error}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// Main activity log groups component
+function ActivityLogGroups({ logs, isRunning, logsEndRef }) {
+  const groups = useMemo(() => {
+    const result = groupLogs(logs);
+    // Mark thinking groups as complete if agent is no longer running
+    if (!isRunning) {
+      result.forEach(g => {
+        if (g.type === 'thinking' && g.status === 'running') {
+          g.status = 'complete';
+        }
+      });
+    }
+    return result;
+  }, [logs, isRunning]);
+  
+  // Auto-expand last group if running
+  useEffect(() => {
+    if (logsEndRef?.current) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [groups.length, logsEndRef]);
+  
+  return (
+    <div className="space-y-2">
+      {groups.map((group, idx) => (
+        <LogGroup 
+          key={idx} 
+          group={group} 
+          index={idx}
+          defaultExpanded={idx === groups.length - 1 && (isRunning || group.status === 'running')}
+        />
+      ))}
+      
+      {/* Running indicator */}
+      {isRunning && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/30">
+          <Loader2 className="w-3.5 h-3.5 text-green-600 dark:text-green-400 animate-spin" />
+          <span className="text-xs text-green-600 dark:text-green-400">Processing...</span>
+        </div>
+      )}
+      
+      {/* Scroll anchor */}
+      <div ref={logsEndRef} />
+    </div>
+  );
 }
 
 // ============================================
@@ -215,11 +591,12 @@ function JobCard({ agent, isSelected, onClick, index }) {
       
       {/* Running progress bar */}
       {isRunning && (
-        <div className="h-0.5 bg-slate-100 dark:bg-gray-700 overflow-hidden rounded-b-lg">
+        <div className="h-1 bg-slate-100 dark:bg-gray-700 overflow-hidden rounded-b-lg relative">
           <motion.div
-            className="h-full bg-blue-500"
-            initial={{ x: '-100%' }}
-            animate={{ x: '100%' }}
+            className="h-full bg-blue-500 absolute inset-y-0"
+            animate={{ 
+              left: ['-30%', '100%']
+            }}
             transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
             style={{ width: '30%' }}
           />
@@ -265,7 +642,7 @@ function LayerColumn({ layer, agents, selectedAgent, onSelectAgent, isFirst, isL
             allComplete ? 'bg-green-500' : hasRunning ? 'bg-blue-500' : 'bg-slate-300 dark:bg-gray-600'
           )} />
           <span className="text-xs font-medium text-slate-500 dark:text-gray-400">
-            Layer {layer}
+            {layer === 0 ? 'Coordination' : `Layer ${layer}`}
           </span>
           <span className="text-xs text-slate-400 dark:text-gray-500">
             {completedCount}/{agents.length}
@@ -344,11 +721,15 @@ function AgentDetailPanel({ agent, onClose }) {
   // Logs from streaming
   const logs = agent.logs || [];
   const isRunning = agent.status === 'running';
+  
+  // Group count for Activity tab (not raw log count)
+  const logGroups = useMemo(() => groupLogs(logs), [logs]);
+  const groupCount = logGroups.length;
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'output', label: 'Output', count: outputText.length > 0 ? 1 : 0 },
-    { id: 'logs', label: 'Activity', count: logs.length, live: isRunning },
+    { id: 'logs', label: 'Activity', count: groupCount, live: isRunning },
     { id: 'tools', label: 'Tools', count: toolCalls.length },
     { id: 'artifacts', label: 'Artifacts', count: artifacts.length },
   ];
@@ -588,52 +969,33 @@ function AgentDetailPanel({ agent, onClose }) {
             transition={{ duration: 0.2 }}
           >
             {logs.length > 0 ? (
-              <div className="space-y-2 font-mono text-xs">
-                {logs.map((log, idx) => {
-                  const logTypeConfig = {
-                    info: { icon: MessageSquare, color: 'text-blue-500', bg: 'bg-blue-500/10' },
-                    llm_start: { icon: Sparkles, color: 'text-purple-500', bg: 'bg-purple-500/10' },
-                    llm_end: { icon: CheckCircle2, color: 'text-green-500', bg: 'bg-green-500/10' },
-                    tool_start: { icon: Wrench, color: 'text-amber-500', bg: 'bg-amber-500/10' },
-                    tool_end: { icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
-                    error: { icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-500/10' },
-                    warning: { icon: AlertCircle, color: 'text-orange-500', bg: 'bg-orange-500/10' },
-                  };
-                  const config = logTypeConfig[log.type] || logTypeConfig.info;
-                  const LogIcon = config.icon;
-                  
-                  return (
-                    <div key={idx} className={clsx(
-                      'flex items-start gap-2 p-2 rounded-lg',
-                      config.bg
-                    )}>
-                      <LogIcon className={clsx('w-3.5 h-3.5 mt-0.5 shrink-0', config.color)} />
-                      <div className="flex-1 min-w-0">
-                        <span className="text-slate-700 dark:text-gray-300">{log.content}</span>
-                        {log.metadata?.preview && (
-                          <p className="text-slate-500 dark:text-gray-500 mt-0.5 truncate text-[10px]">
-                            {log.metadata.preview}
-                          </p>
-                        )}
-                      </div>
-                      <span className="text-[10px] text-slate-400 dark:text-gray-600 shrink-0">
-                        {new Date(log.timestamp).toLocaleTimeString()}
-                      </span>
-                    </div>
-                  );
-                })}
-                {/* Scroll anchor for auto-scroll */}
-                <div ref={logsEndRef} />
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-semibold text-slate-500 dark:text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                    <Activity className="w-3.5 h-3.5" />
+                    Activity Log
+                    <span className="text-slate-400 dark:text-gray-600 font-normal normal-case">
+                      ({groupCount} {groupCount === 1 ? 'group' : 'groups'})
+                    </span>
+                  </h4>
+                  {isRunning && (
+                    <span className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                      Running
+                    </span>
+                  )}
+                </div>
+                <ActivityLogGroups logs={logs} isRunning={isRunning} logsEndRef={logsEndRef} />
               </div>
             ) : (
               <div className="text-center py-8">
                 <Activity className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-gray-600" />
                 <p className="text-sm text-slate-500 dark:text-gray-500">
-                  {agent.status === 'running' ? 'Waiting for activity...' : 'No activity logs'}
+                  {isRunning ? 'Waiting for activity...' : 'No activity logs'}
                 </p>
-                {agent.status === 'running' && (
+                {isRunning && (
                   <div className="flex items-center justify-center gap-1 mt-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                     <span className="text-xs text-slate-400">Agent is executing</span>
                   </div>
                 )}
@@ -1263,6 +1625,7 @@ function ExecutionLayer({ layer, agents, expandedAgents, toggleAgent }) {
   const runningCount = agents.filter(a => a.status === 'running').length;
   const allComplete = completedCount === agents.length;
   const hasRunning = runningCount > 0;
+  const isCoordinationLayer = layer === 0;
 
   return (
     <div className="relative">
@@ -1279,10 +1642,10 @@ function ExecutionLayer({ layer, agents, expandedAgents, toggleAgent }) {
           hasRunning ? 'bg-blue-500/20 text-blue-400' : 
           'bg-gray-700 text-gray-400'
         )}>
-          {layer + 1}
+          {isCoordinationLayer ? '✦' : layer}
         </div>
         <span className="text-sm text-gray-400">
-          Layer {layer + 1}
+          {isCoordinationLayer ? 'Coordination' : `Layer ${layer}`}
           <span className="text-gray-600 ml-2">
             ({completedCount}/{agents.length} complete)
           </span>
@@ -1343,26 +1706,53 @@ function WorkflowVisualizationInner({
     });
   }, []);
 
-  // Auto-expand running agents
-  useEffect(() => {
-    if (execution?.agents) {
-      const running = execution.agents.filter(a => a.status === 'running');
-      if (running.length > 0) {
-        setExpandedAgents(prev => {
-          const next = new Set(prev);
-          running.forEach(a => next.add(a.agent_id));
-          return next;
-        });
-      }
+  // Create synthetic coordinator when execution starts but no agents yet
+  // This shows the workflow UI immediately with coordinator in pending/running state
+  const displayAgents = useMemo(() => {
+    // If we have real agents (non-null, non-empty array), use them
+    if (execution?.agents && Array.isArray(execution.agents) && execution.agents.length > 0) {
+      return execution.agents;
     }
-  }, [execution?.agents]);
+    
+    // If execution started but no plan yet, show synthetic coordinator
+    if (execution) {
+      const hasThinking = execution.thinkingContent && execution.thinkingContent.length > 0;
+      return [{
+        agent_id: 'coordinator_0',
+        role: 'coordinator',
+        task: 'Analyzing query and creating execution plan...',
+        layer: 0,
+        status: hasThinking ? 'running' : 'pending',
+        logs: hasThinking ? [{
+          type: 'thinking',
+          content: execution.thinkingContent,
+          timestamp: new Date().toISOString(),
+        }] : [],
+        startTime: execution.startedAt ? new Date(execution.startedAt).getTime() : Date.now(),
+      }];
+    }
+    
+    return [];
+  }, [execution?.agents, execution?.thinkingContent, execution?.startedAt, execution]);
 
-  // Group agents by layer
+  // Auto-expand running agents (including synthetic coordinator)
+  useEffect(() => {
+    const running = displayAgents.filter(a => a.status === 'running');
+    if (running.length > 0) {
+      setExpandedAgents(prev => {
+        const next = new Set(prev);
+        running.forEach(a => next.add(a.agent_id));
+        return next;
+      });
+    }
+  }, [displayAgents]);
+
+  // Group agents by layer (use displayAgents to include synthetic coordinator)
   const layers = useMemo(() => {
-    if (!execution?.agents) return [];
+    if (!displayAgents.length) return [];
     
     const layerMap = new Map();
-    execution.agents.forEach(agent => {
+    displayAgents.forEach(agent => {
       const layer = agent.layer || 0;
       if (!layerMap.has(layer)) {
         layerMap.set(layer, []);
@@ -1373,16 +1763,23 @@ function WorkflowVisualizationInner({
     return Array.from(layerMap.entries())
       .sort(([a], [b]) => a - b)
       .map(([layer, agents]) => ({ layer, agents }));
-  }, [execution?.agents]);
+  }, [displayAgents]);
+
+  // Get fresh agent data for selected agent (selectedAgent only stores the ID reference)
+  // This ensures the modal always shows the latest logs/status
+  const currentSelectedAgent = useMemo(() => {
+    if (!selectedAgent) return null;
+    return displayAgents.find(a => a.agent_id === selectedAgent.agent_id) || selectedAgent;
+  }, [selectedAgent, displayAgents]);
 
   // Calculate overall progress
   const progress = useMemo(() => {
-    if (!execution?.agents || execution.agents.length === 0) return 0;
-    const completed = execution.agents.filter(a => 
+    if (!displayAgents.length) return 0;
+    const completed = displayAgents.filter(a => 
       a.status === 'completed' || a.status === 'complete'
     ).length;
-    return Math.round((completed / execution.agents.length) * 100);
-  }, [execution?.agents]);
+    return Math.round((completed / displayAgents.length) * 100);
+  }, [displayAgents]);
 
   // Determine if execution is stopped or complete (for retry button)
   const isStopped = execution?.stage === 'stopped';
@@ -1525,52 +1922,6 @@ function WorkflowVisualizationInner({
     );
   }
 
-  // Show minimal state when execution exists but no agents yet
-  if (!execution.agents?.length && !execution.plan?.agents?.length) {
-    return (
-      <div className={clsx(
-        'flex flex-col',
-        isPanel ? 'h-full bg-slate-50 dark:bg-gray-900' : 'fixed inset-0 z-50 bg-gray-900'
-      )}>
-        {/* Header */}
-        <div className="flex-shrink-0 px-4 py-3 border-b border-slate-200 dark:border-gray-700/50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-purple-500/20">
-                <Loader2 className="w-5 h-5 text-purple-400 animate-spin" />
-              </div>
-              <div>
-                <h2 className="font-semibold text-slate-700 dark:text-white">Workflow</h2>
-                <p className="text-xs text-slate-500 dark:text-gray-400">
-                  {execution.stageMessage || 'Initializing...'}
-                </p>
-              </div>
-            </div>
-            
-            {onClose && (
-              <button
-                onClick={onClose}
-                className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-gray-800 text-slate-400 dark:text-gray-400 hover:text-slate-600 dark:hover:text-white transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Loading state */}
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center px-6">
-            <Loader2 className="w-12 h-12 mx-auto mb-4 text-purple-400 animate-spin" />
-            <p className="text-sm text-slate-500 dark:text-gray-400">
-              {execution.stageMessage || 'Planning execution...'}
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const content = (
     <div className="h-full flex flex-col bg-slate-50 dark:bg-gray-900">
       {/* Header */}
@@ -1615,7 +1966,7 @@ function WorkflowVisualizationInner({
                   </h2>
                   <p className="text-xs text-slate-500 dark:text-gray-400">
                     {isLive && <span className="text-emerald-500 mr-1">●</span>}
-                    {execution.plan?.total_agents || execution.agents?.length || 0} agents • {execution.plan?.total_layers || 1} layers
+                    {execution.plan?.total_agents || displayAgents.length || 0} agents • {execution.plan?.total_layers || layers.length || 1} layers
                   </p>
                 </div>
               </>
@@ -1779,9 +2130,9 @@ function WorkflowVisualizationInner({
               {viewMode === 'dag' ? (
                 <div className="p-4 h-full">
                   <DAGView 
-                    agents={execution.agents || []}
+                    agents={displayAgents}
                     layers={layers}
-                    selectedAgent={selectedAgent}
+                    selectedAgent={currentSelectedAgent}
                     onSelectAgent={setSelectedAgent}
                   />
                 </div>
@@ -1825,7 +2176,7 @@ function WorkflowVisualizationInner({
                 </div>
               ))}
             </div>
-            {viewMode === 'dag' && selectedAgent && (
+            {viewMode === 'dag' && currentSelectedAgent && (
               <span className="text-[10px] text-slate-400 dark:text-gray-500">
                 Click node for details
               </span>
@@ -1870,7 +2221,10 @@ function WorkflowVisualization(props) {
   
   // Default context value if hook fails
   const contextValue = rolesHook || {
-    getRole: (roleName) => DEFAULT_ROLE_CONFIG.default,
+    getRole: (roleName) => {
+      const normalized = roleName?.toLowerCase().replace(/\s+/g, '_');
+      return DEFAULT_ROLE_CONFIG[normalized] || DEFAULT_ROLE_CONFIG.default;
+    },
     roles: DEFAULT_ROLE_CONFIG,
     loading: false,
     error: null,

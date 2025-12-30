@@ -22,6 +22,7 @@ import {
   FileCode,
   File,
   Eye,
+  Bot,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { formatDistanceToNow } from 'date-fns';

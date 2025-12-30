@@ -77,6 +77,22 @@ PRICING_TABLE: Dict[str, Dict[str, ModelPricing]] = {
     "ollama": {
         "default": ModelPricing(0.0, 0.0),
     },
+    # vLLM/local models are free (self-hosted)
+    "vllm": {
+        "default": ModelPricing(0.0, 0.0),
+        # Qwen models
+        "Qwen/Qwen2.5-72B-Instruct": ModelPricing(0.0, 0.0),
+        "Qwen/Qwen2.5-32B-Instruct": ModelPricing(0.0, 0.0),
+        "Qwen/Qwen2.5-14B-Instruct": ModelPricing(0.0, 0.0),
+        "Qwen/Qwen2.5-7B-Instruct": ModelPricing(0.0, 0.0),
+        "Qwen/Qwen2.5-3B-Instruct": ModelPricing(0.0, 0.0),
+        "Qwen/Qwen2.5-1.5B-Instruct": ModelPricing(0.0, 0.0),
+        "Qwen/Qwen2.5-0.5B-Instruct": ModelPricing(0.0, 0.0),
+        # Qwen Coder models
+        "Qwen/Qwen2.5-Coder-32B-Instruct": ModelPricing(0.0, 0.0),
+        "Qwen/Qwen2.5-Coder-14B-Instruct": ModelPricing(0.0, 0.0),
+        "Qwen/Qwen2.5-Coder-7B-Instruct": ModelPricing(0.0, 0.0),
+    },
 }
 
 # Provider name aliases
@@ -90,6 +106,8 @@ PROVIDER_ALIASES = {
     "claude": "anthropic",
     "ollama": "ollama",
     "local": "ollama",
+    "vllm": "vllm",
+    "qwen": "vllm",  # Qwen typically served via vLLM
 }
 
 

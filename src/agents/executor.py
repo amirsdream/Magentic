@@ -150,6 +150,41 @@ class AgentExecutor:
         model = _config.get_model_name()
         record_llm_request(provider, model, duration, success)
 
+    def _extract_thinking(self, content: str) -> tuple:
+        """Extract thinking content from response if present.
+        
+        Returns:
+            Tuple of (thinking_content, response_without_thinking)
+        """
+        import re
+        # Match various thinking block formats:
+        # - <think>...</think> (Qwen3, DeepSeek style)
+        # - <thinking>...</thinking> (alternative format)
+        # - ```thinking\n...\n``` (markdown style)
+        patterns = [
+            re.compile(r'<think>(.*?)</think>', re.DOTALL),
+            re.compile(r'<thinking>(.*?)</thinking>', re.DOTALL),
+            re.compile(r'```thinking\n(.*?)\n```', re.DOTALL),
+        ]
+        
+        thinking_parts = []
+        clean_content = content
+        
+        for pattern in patterns:
+            matches = pattern.findall(content)
+            if matches:
+                thinking_parts.extend(matches)
+                clean_content = pattern.sub('', clean_content)
+        
+        thinking = '\n'.join(thinking_parts).strip() if thinking_parts else None
+        clean_content = clean_content.strip()
+        
+        # Log for debugging
+        if thinking:
+            logger.info(f"🧠 Extracted thinking content: {len(thinking)} chars")
+        
+        return thinking, clean_content
+
     def _invoke_llm(self, messages: list, config: RunnableConfig, llm: Any = None) -> Any:
         """Invoke LLM with metrics tracking.
         
@@ -167,7 +202,7 @@ class AgentExecutor:
         model_name = getattr(llm_to_use, 'model_name', None) or getattr(llm_to_use, 'model', 'unknown')
         last_msg = messages[-1].content if messages else ""
         preview = last_msg[:100] + "..." if len(last_msg) > 100 else last_msg
-        self._emit_log('llm_start', f"Calling {model_name}...", {'preview': preview})
+        self._emit_log('llm_start', f"Calling {model_name}...", {'preview': preview, 'model': model_name})
         
         start_time = time.time()
         try:
@@ -175,9 +210,21 @@ class AgentExecutor:
             duration = time.time() - start_time
             self._record_llm_request(duration, True)
             
+            # Extract thinking content if present
+            response_content = str(response.content)
+            thinking, clean_response = self._extract_thinking(response_content)
+            
+            # Emit thinking log if present
+            if thinking:
+                self._emit_log('thinking', 'Model reasoning', {'content': thinking})
+            
             # Emit log for LLM end
-            response_preview = str(response.content)[:150] + "..." if len(str(response.content)) > 150 else str(response.content)
-            self._emit_log('llm_end', f"LLM responded ({duration:.1f}s)", {'preview': response_preview})
+            response_preview = clean_response[:150] + "..." if len(clean_response) > 150 else clean_response
+            self._emit_log('llm_end', f"LLM responded ({duration:.1f}s)", {
+                'preview': response_preview,
+                'duration': duration,
+                'has_thinking': thinking is not None
+            })
             
             return response
         except Exception as e:
@@ -529,7 +576,6 @@ class AgentExecutor:
         task: str,
         original_query: str,
         previous_outputs: List[str],
-        conversation_history: Optional[List[Dict[str, str]]] = None,
         depth: int = 0,
         max_depth: int = 3,
         process_query_callback: Optional[Callable] = None,
@@ -542,7 +588,6 @@ class AgentExecutor:
             task: Specific task for this agent
             original_query: Original user query
             previous_outputs: Outputs from previous agents
-            conversation_history: Conversation history
             depth: Current execution depth
             max_depth: Maximum execution depth
             process_query_callback: Callback for recursive delegation
@@ -550,6 +595,9 @@ class AgentExecutor:
 
         Returns:
             Dict with 'content' (text output) and 'tool_calls' (list of tools used)
+            
+        Note: Individual agents do NOT receive conversation history.
+        Only the Meta Coordinator has access to session history for planning.
         """
         # Start metrics tracking
         start_time = self._record_agent_start()
@@ -558,7 +606,7 @@ class AgentExecutor:
         try:
             result = self._execute_internal(
                 role, task, original_query, previous_outputs,
-                conversation_history, depth, max_depth,
+                depth, max_depth,
                 process_query_callback, agent_id
             )
             success = True
@@ -576,21 +624,24 @@ class AgentExecutor:
         task: str,
         original_query: str,
         previous_outputs: List[str],
-        conversation_history: Optional[List[Dict[str, str]]] = None,
         depth: int = 0,
         max_depth: int = 3,
         process_query_callback: Optional[Callable] = None,
         agent_id: str = "",
     ) -> Dict[str, Any]:
-        """Internal execute implementation."""
+        """Internal execute implementation.
+        
+        Note: Individual agents do NOT receive conversation history.
+        Only the Meta Coordinator has access to session history for planning.
+        """
         # Set current agent ID for logging
         self._current_agent_id = agent_id
         
         # Emit agent execution start log
         self._emit_log('info', f"Starting {role.name} agent", {'task': task[:100]})
         
-        # Build context
-        context = self._build_context(original_query, previous_outputs, conversation_history)
+        # Build context (no conversation history - only query + previous agent outputs)
+        context = self._build_context(original_query, previous_outputs)
 
         # Build messages
         output_limit_instruction = (
@@ -631,20 +682,16 @@ class AgentExecutor:
         self,
         original_query: str,
         previous_outputs: List[str],
-        conversation_history: Optional[List[Dict[str, str]]],
     ) -> str:
-        """Build context string from query and previous outputs."""
+        """Build context string from query and previous outputs.
+        
+        Note: Conversation history is NOT passed to individual agents.
+        Only the Meta Coordinator has access to session history for planning.
+        Agents receive only:
+        - The original query
+        - Outputs from dependent agents (previous_outputs)
+        """
         context_parts = [f"Original question: {original_query}"]
-
-        if conversation_history:
-            context_parts.append("\n=== Previous Agent Conversation Steps ===")
-            for i, step in enumerate(conversation_history[-3:], 1):
-                context_parts.append(
-                    f"\nStep {i} - {step.get('role', 'unknown')} ({step.get('agent_id', '')}):"
-                )
-                context_parts.append(f"  Task: {step.get('task', '')[:100]}")
-                step_output = step.get("output", "")[: self.history_limit]
-                context_parts.append(f"  Output: {step_output}...")
 
         if previous_outputs:
             logger.info(f"Agent has {len(previous_outputs)} previous outputs to incorporate")
@@ -1058,12 +1105,21 @@ IMPORTANT: Keep search queries short and focused."""
         self, tool_name: str, tool_args: dict, role_tools: List[BaseTool]
     ) -> Optional[str]:
         """Execute a single tool by name from role-specific tools."""
+        import json
         for tool in role_tools:
             if tool.name == tool_name:
                 start_time = time.time()
-                # Emit tool start log
-                args_preview = str(tool_args)[:80] + "..." if len(str(tool_args)) > 80 else str(tool_args)
-                self._emit_log('tool_start', f"Calling tool: {tool_name}", {'args': args_preview})
+                # Emit tool start log with full arguments
+                try:
+                    args_json = json.dumps(tool_args, indent=2, default=str)
+                except:
+                    args_json = str(tool_args)
+                args_preview = args_json[:80] + "..." if len(args_json) > 80 else args_json
+                self._emit_log('tool_start', f"Calling tool: {tool_name}", {
+                    'tool_name': tool_name,
+                    'args': args_json,  # Full args
+                    'preview': args_preview
+                })
                 
                 try:
                     logger.info(f"   └─ Executing {tool_name}...")
@@ -1071,20 +1127,30 @@ IMPORTANT: Keep search queries short and focused."""
                     duration = time.time() - start_time
                     self._record_tool_call(tool_name, duration, True)
                     
-                    # Emit tool end log
-                    result_preview = str(result)[:100] + "..." if len(str(result)) > 100 else str(result)
-                    self._emit_log('tool_end', f"Tool {tool_name} completed ({duration:.1f}s)", {'result': result_preview})
+                    # Emit tool end log with full result
+                    result_str = str(result)
+                    result_preview = result_str[:100] + "..." if len(result_str) > 100 else result_str
+                    self._emit_log('tool_end', f"Tool {tool_name} completed ({duration:.1f}s)", {
+                        'tool_name': tool_name,
+                        'result': result_str,  # Full result
+                        'preview': result_preview,
+                        'duration': duration
+                    })
                     
                     return result
                 except Exception as e:
                     duration = time.time() - start_time
                     self._record_tool_call(tool_name, duration, False, type(e).__name__)
-                    self._emit_log('error', f"Tool {tool_name} failed: {str(e)[:80]}")
+                    self._emit_log('error', f"Tool {tool_name} failed: {str(e)}", {
+                        'tool_name': tool_name,
+                        'error': str(e),
+                        'duration': duration
+                    })
                     logger.error(f"   └─ Tool error: {e}")
                     return f"Error executing {tool_name}: {e}"
 
         logger.warning(f"   └─ Tool '{tool_name}' not found in role tools")
-        self._emit_log('warning', f"Tool '{tool_name}' not found")
+        self._emit_log('warning', f"Tool '{tool_name}' not found", {'tool_name': tool_name})
         return None
 
     def _execute_without_tools(

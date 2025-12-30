@@ -30,6 +30,11 @@ class Config:
         self.anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
         self.anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
 
+        # vLLM settings (OpenAI-compatible API)
+        self.vllm_base_url: str = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
+        self.vllm_model: str = os.getenv("VLLM_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+        self.vllm_api_key: str = os.getenv("VLLM_API_KEY", "EMPTY")  # vLLM uses "EMPTY" by default
+
         # Common LLM settings
         self.llm_temperature: float = float(os.getenv("LLM_TEMPERATURE", "0"))
 
@@ -98,6 +103,8 @@ class Config:
         self.rag_embedding_provider: str = os.getenv("RAG_EMBEDDING_PROVIDER", self.llm_provider)
         # Auto-select model based on provider if not specified
         self.rag_embedding_model: Optional[str] = os.getenv("RAG_EMBEDDING_MODEL")
+        # Separate Ollama URL for RAG embeddings (defaults to main OLLAMA_BASE_URL)
+        self.rag_ollama_base_url: str = os.getenv("RAG_OLLAMA_BASE_URL", self.ollama_base_url)
 
         # MCP settings
         self.enable_mcp: bool = os.getenv("ENABLE_MCP", "false").lower() in ("true", "1", "yes")
@@ -110,10 +117,10 @@ class Config:
             Tuple of (is_valid, error_message).
         """
         # Validate LLM provider
-        if self.llm_provider not in ["ollama", "openai", "claude"]:
+        if self.llm_provider not in ["ollama", "openai", "claude", "vllm"]:
             return (
                 False,
-                f"LLM_PROVIDER must be 'ollama', 'openai', or 'claude', got '{self.llm_provider}'",
+                f"LLM_PROVIDER must be 'ollama', 'openai', 'claude', or 'vllm', got '{self.llm_provider}'",
             )
 
         # Validate API keys for cloud providers
@@ -152,7 +159,27 @@ class Config:
             "ollama": self.ollama_model,
             "openai": self.openai_model,
             "claude": self.anthropic_model,
+            "vllm": self.vllm_model,
         }.get(self.llm_provider, "unknown")
+
+    def is_thinking_model(self) -> bool:
+        """Check if the current model is a thinking/reasoning model.
+        
+        Thinking models include:
+        - Qwen3 (has /think mode)
+        - Claude with extended thinking
+        - OpenAI o1/o3 reasoning models
+        - DeepSeek R1
+        """
+        model = self.get_model_name().lower()
+        thinking_patterns = [
+            "qwen3",        # Qwen 3 has thinking mode
+            "qwq",          # Qwen QwQ reasoning model
+            "deepseek-r1",  # DeepSeek R1 reasoning
+            "o1",           # OpenAI o1 reasoning
+            "o3",           # OpenAI o3 reasoning
+        ]
+        return any(pattern in model for pattern in thinking_patterns)
 
     def __repr__(self) -> str:
         """String representation of config."""

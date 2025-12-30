@@ -66,8 +66,10 @@ class MetaAgentSystem:
         # Initialize coordinator with the configured LLM and RAG service
         self.coordinator = MetaCoordinator(config, self.llm, rag_service=rag_service)
 
-        # Conversation memory
-        self.conversation_history: List[Dict[str, str]] = []
+        # Conversation memory - per session
+        self.conversation_history: List[Dict[str, str]] = []  # Legacy: default/global history
+        self._session_histories: Dict[str, List[Dict[str, str]]] = {}  # Per-session histories
+        self._current_session_id: Optional[str] = None  # Track current session
         # Visualization
         self.visualizer = ExecutionVisualizer()
         # Hierarchical execution settings from config
@@ -79,6 +81,67 @@ class MetaAgentSystem:
         # Concurrency control - limit parallel agents to prevent system overload
         self.max_parallel_agents = config.max_parallel_agents
         self._semaphore = asyncio.Semaphore(self.max_parallel_agents)
+
+    def set_session(self, session_id: Optional[str]) -> None:
+        """Set the current session and switch conversation history.
+        
+        Args:
+            session_id: Session ID to switch to, or None for default history
+        """
+        self._current_session_id = session_id
+        if session_id:
+            # Initialize session history if not exists
+            if session_id not in self._session_histories:
+                self._session_histories[session_id] = []
+            # Point conversation_history to session-specific history
+            self.conversation_history = self._session_histories[session_id]
+            logger.info(f"📚 Switched to session {session_id} with {len(self.conversation_history)} messages")
+        else:
+            # Use default/global history
+            self.conversation_history = []
+            logger.info("📚 Using default conversation history")
+
+    def load_session_history(self, session_id: str, messages: List[Dict[str, str]]) -> None:
+        """Load conversation history for a session from database.
+        
+        Args:
+            session_id: Session ID
+            messages: List of message dicts with 'role' and 'content'
+        """
+        self._session_histories[session_id] = messages.copy()
+        if self._current_session_id == session_id:
+            self.conversation_history = self._session_histories[session_id]
+        logger.info(f"📚 Loaded {len(messages)} messages for session {session_id}")
+
+    def get_session_history(self, session_id: Optional[str] = None) -> List[Dict[str, str]]:
+        """Get conversation history for a session.
+        
+        Args:
+            session_id: Session ID, or None for current session
+            
+        Returns:
+            List of conversation messages
+        """
+        sid = session_id or self._current_session_id
+        if sid and sid in self._session_histories:
+            return self._session_histories[sid]
+        return self.conversation_history
+
+    def clear_session_history(self, session_id: Optional[str] = None) -> None:
+        """Clear conversation history for a session.
+        
+        Args:
+            session_id: Session ID to clear, or None for current session
+        """
+        sid = session_id or self._current_session_id
+        if sid and sid in self._session_histories:
+            self._session_histories[sid] = []
+            if self._current_session_id == sid:
+                self.conversation_history = self._session_histories[sid]
+            logger.info(f"🗑️ Cleared history for session {sid}")
+        elif not sid:
+            self.conversation_history = []
+            logger.info("🗑️ Cleared default conversation history")
 
     def _initialize_llm(self, config: Config) -> BaseChatModel:
         """Initialize the appropriate LLM based on configuration.
@@ -93,10 +156,16 @@ class MetaAgentSystem:
 
         if config.llm_provider == "ollama":
             logger.info(f"   Using Ollama model: {config.ollama_model} at {config.ollama_base_url}")
+            # Enable reasoning mode for thinking models (Qwen3, QwQ, DeepSeek-R1, etc.)
+            # This captures thinking in additional_kwargs["reasoning_content"] instead of <think> tags
+            reasoning_enabled = config.is_thinking_model()
+            if reasoning_enabled:
+                logger.info("   Reasoning mode ENABLED for thinking model")
             return ChatOllama(
                 model=config.ollama_model,
                 base_url=config.ollama_base_url,
                 temperature=config.llm_temperature,
+                reasoning=reasoning_enabled if reasoning_enabled else None,
             )
         elif config.llm_provider == "openai":
             logger.info(f"   Using OpenAI model: {config.openai_model}")
@@ -120,6 +189,15 @@ class MetaAgentSystem:
                 model_name=config.anthropic_model,  # type: ignore[call-arg]
                 api_key=config.anthropic_api_key,  # type: ignore[call-arg]
                 temperature=config.llm_temperature,  # type: ignore[call-arg]
+            )
+        elif config.llm_provider == "vllm":
+            logger.info(f"   Using vLLM model: {config.vllm_model} at {config.vllm_base_url}")
+            # vLLM exposes an OpenAI-compatible API
+            return ChatOpenAI(
+                model=config.vllm_model,
+                base_url=config.vllm_base_url,
+                api_key=config.vllm_api_key,  # type: ignore[call-arg]
+                temperature=config.llm_temperature,
             )
         else:
             raise ValueError(f"Unsupported LLM provider: {config.llm_provider}")
@@ -1143,20 +1221,21 @@ Combine these results to complete your original task."""
         """Build conversation context from history.
 
         Returns:
-            Formatted conversation history.
+            Formatted conversation history with FULL content.
         """
         if not self.conversation_history:
             return ""
 
-        # Last 2 exchanges (4 messages) to keep context manageable
-        recent = self.conversation_history[-4:]
+        # Include ALL conversation history for full context
+        # The coordinator needs complete history to understand references
         lines = []
-        for msg in recent:
+        for i, msg in enumerate(self.conversation_history):
             role_label = "User" if msg["role"] == "user" else "Assistant"
-            content = msg["content"][:150] + "..." if len(msg["content"]) > 150 else msg["content"]
-            lines.append(f"{role_label}: {content}")
+            content = msg["content"]
+            # Include full content, not truncated
+            lines.append(f"[{i+1}] {role_label}: {content}")
 
-        return "\n".join(lines) if lines else ""
+        return "\n\n".join(lines) if lines else ""
 
     def clear_memory(self) -> None:
         """Clear conversation history."""

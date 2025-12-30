@@ -64,6 +64,10 @@ class MetaAgentSystem:
 
         # Conversation memory
         self.conversation_history: List[Dict[str, str]] = []
+        
+        # Per-session conversation histories
+        self._session_histories: Dict[str, List[Dict[str, str]]] = {}
+        self._current_session_id: Optional[str] = None
 
         # Visualization
         self.visualizer = ExecutionVisualizer()
@@ -73,6 +77,59 @@ class MetaAgentSystem:
         self.absolute_max_depth = config.absolute_max_depth
         self.max_parallel_agents = config.max_parallel_agents
         self._semaphore = asyncio.Semaphore(self.max_parallel_agents)
+
+    def set_session(self, session_id: Optional[str]) -> None:
+        """Set the current session for conversation history.
+        
+        Args:
+            session_id: Session ID to activate, or None to use default history.
+        """
+        self._current_session_id = session_id
+        if session_id is None:
+            # Use default conversation history
+            self.conversation_history = []
+        else:
+            # Use or create session-specific history
+            if session_id not in self._session_histories:
+                self._session_histories[session_id] = []
+            # Point conversation_history to the session's history
+            self.conversation_history = self._session_histories[session_id]
+
+    def load_session_history(self, session_id: str, messages: List[Dict[str, str]]) -> None:
+        """Load conversation history for a session from database.
+        
+        Args:
+            session_id: Session ID to load history for.
+            messages: List of message dicts with 'role' and 'content'.
+        """
+        self._session_histories[session_id] = messages.copy()
+        if self._current_session_id == session_id:
+            self.conversation_history = self._session_histories[session_id]
+
+    def get_session_history(self, session_id: Optional[str] = None) -> List[Dict[str, str]]:
+        """Get conversation history for a session.
+        
+        Args:
+            session_id: Session ID to get history for. Uses current if None.
+        """
+        sid = session_id or self._current_session_id
+        if sid and sid in self._session_histories:
+            return self._session_histories[sid]
+        return self.conversation_history
+
+    def clear_session_history(self, session_id: Optional[str] = None) -> None:
+        """Clear conversation history for a session.
+        
+        Args:
+            session_id: Session ID to clear. Uses current if None.
+        """
+        sid = session_id or self._current_session_id
+        if sid and sid in self._session_histories:
+            self._session_histories[sid] = []
+            if self._current_session_id == sid:
+                self.conversation_history = self._session_histories[sid]
+        else:
+            self.conversation_history = []
 
     def process_query(
         self, query: str, depth: int = 0, max_depth: int | None = None
@@ -259,7 +316,6 @@ class MetaAgentSystem:
             task=task,
             original_query=query,
             previous_outputs=previous_outputs,
-            conversation_history=self.conversation_history,
             depth=depth,
             max_depth=max_depth,
             process_query_callback=self.process_query,
@@ -399,7 +455,6 @@ class MetaAgentSystem:
             task,
             query,
             previous_outputs,
-            self.conversation_history,
             depth,
             max_depth,
             self.process_query,
@@ -420,10 +475,13 @@ class MetaAgentSystem:
         total_layers: int = 1,
         agent_number: int = 1,
         total_agents: int = 1,
-        conversation_history: Optional[List[Dict[str, str]]] = None,
         input_artifacts: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        """Execute a single agent for LangGraph integration."""
+        """Execute a single agent for LangGraph integration.
+        
+        Note: Individual agents do NOT receive conversation history.
+        Only the Meta Coordinator has access to session history for planning.
+        """
         role_obj = self.role_library.get_role(role)
         if not role_obj:
             logger.error(f"Unknown role: {role}")
@@ -442,9 +500,8 @@ class MetaAgentSystem:
         # Parse context to extract previous outputs
         previous_outputs = self._parse_context(context, agent_id)
 
-        conv_hist = conversation_history if conversation_history is not None else []
-
         # Execute agent in thread pool with agent_id for token tracking
+        # Note: Agents do NOT receive conversation history - only the coordinator has it
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,
@@ -453,9 +510,8 @@ class MetaAgentSystem:
             task,
             original_query,
             previous_outputs,
-            conv_hist,
-            0,
-            3,
+            0,  # depth
+            3,  # max_depth
             self.process_query,
             agent_id,  # Pass agent_id for token tracking
         )

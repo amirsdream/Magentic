@@ -100,6 +100,28 @@ def validate_plan_logic(agents: List[Dict[str, Any]]) -> bool:
     return True
 
 
+def filter_coordinator_role(agents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Remove any 'coordinator' roles from the plan.
+    
+    The coordinator is the meta-agent itself, not a role that can be used in plans.
+    If the model tries to create a coordinator agent, replace it with analyzer.
+    
+    Args:
+        agents: List of agent specifications.
+        
+    Returns:
+        Fixed agent list with coordinator roles replaced.
+    """
+    fixed_agents = []
+    for agent in agents:
+        role = agent.get("role", "").lower()
+        if role == "coordinator":
+            logger.warning(f"⚠️ Replacing 'coordinator' role with 'analyzer' - coordinator is reserved")
+            agent = {**agent, "role": "analyzer"}
+        fixed_agents.append(agent)
+    return fixed_agents
+
+
 def fix_plan_logic(agents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Fix logical issues in the plan.
 
@@ -109,6 +131,9 @@ def fix_plan_logic(agents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     Returns:
         Fixed agent list.
     """
+    # First, filter out coordinator roles
+    agents = filter_coordinator_role(agents)
+    
     fixed_agents = []
     synthesizers = []
 

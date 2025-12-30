@@ -10,6 +10,7 @@ export const API_CONFIG = {
 export const WEBSOCKET_EVENTS = {
   STATUS: 'status',
   STAGE: 'stage',
+  THINKING: 'thinking',  // Stream of thinking content from reasoning models
   PLAN: 'plan',
   AGENT_START: 'agent_start',
   AGENT_LOG: 'agent_log',

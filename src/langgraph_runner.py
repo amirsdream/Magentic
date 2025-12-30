@@ -78,6 +78,9 @@ class LangGraphExecutor:
         compiled_graph = self.graph_builder.build_dynamic_graph(plan)
 
         # Create initial state
+        # Note: Session conversation history is NOT passed to agents
+        # Only the Meta Coordinator has access to session history (used during planning above)
+        # The graph's conversation_history tracks execution steps, not user/assistant messages
         initial_state = self.graph_builder.create_initial_state(query)
 
         # Execute graph

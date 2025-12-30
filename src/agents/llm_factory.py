@@ -35,10 +35,16 @@ def create_llm(config: Config) -> BaseChatModel:
 
     if config.llm_provider == "ollama":
         logger.info(f"   Using Ollama model: {config.ollama_model} at {config.ollama_base_url}")
+        # Enable reasoning mode for thinking models (Qwen3, QwQ, DeepSeek-R1, etc.)
+        # This captures thinking in additional_kwargs["reasoning_content"] instead of <think> tags
+        reasoning_enabled = config.is_thinking_model()
+        if reasoning_enabled:
+            logger.info("   Reasoning mode ENABLED for thinking model")
         return ChatOllama(
             model=config.ollama_model,
             base_url=config.ollama_base_url,
             temperature=config.llm_temperature,
+            reasoning=reasoning_enabled if reasoning_enabled else None,
         )
 
     elif config.llm_provider == "openai":
@@ -63,6 +69,16 @@ def create_llm(config: Config) -> BaseChatModel:
         return ChatAnthropic(
             model_name=config.anthropic_model,
             anthropic_api_key=config.anthropic_api_key,  # type: ignore
+            temperature=config.llm_temperature,
+        )
+
+    elif config.llm_provider == "vllm":
+        logger.info(f"   Using vLLM model: {config.vllm_model} at {config.vllm_base_url}")
+        # vLLM exposes an OpenAI-compatible API
+        return ChatOpenAI(
+            model=config.vllm_model,
+            base_url=config.vllm_base_url,
+            api_key=config.vllm_api_key,  # type: ignore
             temperature=config.llm_temperature,
         )
 

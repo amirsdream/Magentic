@@ -103,7 +103,7 @@ async def main_async() -> int:
                 chunk_overlap=config.rag_chunk_overlap,
                 embedding_provider=config.rag_embedding_provider,
                 embedding_model=config.rag_embedding_model,
-                ollama_base_url=config.ollama_base_url,
+                ollama_base_url=config.rag_ollama_base_url,
             )
             stats = rag_service.get_stats()
             console.print(

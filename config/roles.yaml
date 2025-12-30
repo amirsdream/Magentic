@@ -17,6 +17,19 @@
 #                  target, database, git-branch, message-square, sparkles
 
 roles:
+  # Meta Coordinator - Layer 0 (always first)
+  coordinator:
+    label: "Coordinator"
+    description: "Analyzes queries and orchestrates specialized agents"
+    icon: "sparkles"
+    capabilities:
+      - query_analysis
+      - agent_orchestration
+      - planning
+    system_prompt: "You are the meta-coordinator. Analyze user queries and create optimal execution plans."
+    needs_tools: false
+    can_delegate: true
+
   researcher:
     label: "Researcher"
     description: "Conducts research and gathers information from the web"

@@ -294,11 +294,12 @@ function App() {
     await addMessage(userMessage, username);
 
     // Set immediate execution state with loading indicator (single box for progress)
+    // Don't set agents - let the WebSocket handler create them properly
     setCurrentExecution({
       stage: 'initializing',
       stageMessage: 'Processing your query...',
       isLoading: true,
-      agents: [],
+      agents: null,  // null means "waiting for agents", not empty array
       plan: null,
       query: content, // Include the user's query for history display
       startedAt: new Date().toISOString(),
