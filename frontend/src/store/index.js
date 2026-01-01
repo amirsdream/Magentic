@@ -14,11 +14,47 @@ export const useChatStore = create(
       conversations: [],
       activeConversationId: null,
       isLoading: false,
+      isInitialized: false, // True after first load completes
+      
+      // Execution state per conversation (keyed by conversation ID)
+      executionsByConversation: {},
+      // Which conversation is currently executing (may be different from active)
+      executingConversationId: null,
       
       // Load chats from backend
       loadChats: async (username) => {
         if (!username) return;
         console.log('[ChatStore] loadChats called for:', username);
+        
+        // Wait for hydration to complete (so activeConversationId is loaded from localStorage)
+        // Use a promise that resolves when _hasHydrated becomes true
+        const waitForHydration = async () => {
+          // Check if already hydrated
+          if (useChatStore.getState()._hasHydrated) {
+            console.log('[ChatStore] Already hydrated');
+            return;
+          }
+          
+          // Wait for hydration with timeout
+          return new Promise((resolve) => {
+            const timeout = setTimeout(() => {
+              console.log('[ChatStore] Hydration timeout, proceeding anyway');
+              resolve();
+            }, 500); // 500ms timeout
+            
+            const unsubscribe = useChatStore.subscribe((state) => {
+              if (state._hasHydrated) {
+                clearTimeout(timeout);
+                unsubscribe();
+                console.log('[ChatStore] Hydration detected via subscription');
+                resolve();
+              }
+            });
+          });
+        };
+        
+        await waitForHydration();
+        
         set({ isLoading: true });
         try {
           const response = await fetch(`${API_URL}/chats/${username}`);
@@ -26,7 +62,10 @@ export const useChatStore = create(
           if (response.ok) {
             const data = await response.json();
             console.log('[ChatStore] loadChats data:', data);
-            const { activeConversationId } = get();
+            
+            // Get activeConversationId after hydration
+            const { activeConversationId } = useChatStore.getState();
+            console.log('[ChatStore] Hydrated activeConversationId:', activeConversationId);
             
             const loadedConversations = data.chats.map(chat => ({
               id: chat.id,
@@ -39,20 +78,28 @@ export const useChatStore = create(
             }));
             
             // Check if saved activeConversationId exists in loaded chats
-            const activeExists = loadedConversations.some(c => c.id === activeConversationId);
+            const activeExists = activeConversationId && loadedConversations.some(c => c.id === activeConversationId);
+            console.log('[ChatStore] activeExists in loaded chats:', activeExists);
+            
+            // Determine which conversation to select:
+            // 1. Persisted ID if it exists in chats
+            // 2. Most recent chat (first in list, sorted by updatedAt desc)
+            // 3. null if no chats
+            const selectedId = activeExists 
+              ? activeConversationId 
+              : (loadedConversations[0]?.id || null);
+            
+            console.log('[ChatStore] Selected conversation:', selectedId);
             
             set({
               conversations: loadedConversations,
-              // Keep active ID if it exists, otherwise select first chat or null
-              activeConversationId: activeExists 
-                ? activeConversationId 
-                : (loadedConversations[0]?.id || null),
+              activeConversationId: selectedId,
             });
           }
         } catch (error) {
           console.error('Failed to load chats:', error);
         } finally {
-          set({ isLoading: false });
+          set({ isLoading: false, isInitialized: true });
         }
       },
       
@@ -144,6 +191,115 @@ export const useChatStore = create(
       
       // Set active conversation
       setActiveConversation: (id) => set({ activeConversationId: id }),
+      
+      // Set which conversation is executing
+      setExecutingConversation: (id) => set({ executingConversationId: id }),
+      
+      // Save execution state for a conversation
+      setConversationExecution: (conversationId, execution) => {
+        if (!conversationId) return;
+        set((state) => ({
+          executionsByConversation: {
+            ...state.executionsByConversation,
+            [conversationId]: execution,
+          },
+        }));
+      },
+      
+      // Get execution state for a conversation
+      getConversationExecution: (conversationId) => {
+        return get().executionsByConversation[conversationId] || null;
+      },
+      
+      // Clear execution state for a conversation
+      clearConversationExecution: (conversationId) => {
+        if (!conversationId) return;
+        set((state) => {
+          const { [conversationId]: _, ...rest } = state.executionsByConversation;
+          return {
+            executionsByConversation: rest,
+            executingConversationId: state.executingConversationId === conversationId 
+              ? null 
+              : state.executingConversationId,
+          };
+        });
+      },
+      
+      // Add message to a SPECIFIC conversation (for background execution completion)
+      addMessageToConversation: async (conversationId, message, username) => {
+        if (!conversationId) {
+          console.warn('addMessageToConversation called with no conversationId');
+          return;
+        }
+        
+        const { conversations } = get();
+        const targetConv = conversations.find(c => c.id === conversationId);
+        if (!targetConv) {
+          console.warn('addMessageToConversation: conversation not found:', conversationId);
+          return;
+        }
+        
+        const msgId = `msg_${Date.now()}`;
+        const executionData = message.executionData || message.execution || null;
+        
+        const normalizedMessage = {
+          id: msgId,
+          type: message.type,
+          content: message.content,
+          timestamp: message.timestamp || new Date(),
+          execution: executionData,
+          artifacts: message.artifacts || executionData?.artifacts || [],
+          references: message.references || executionData?.references || [],
+        };
+        
+        const executionDataForBackend = executionData ? {
+          ...executionData,
+          artifacts: message.artifacts || executionData.artifacts || [],
+          references: message.references || executionData.references || [],
+        } : null;
+        
+        // Update local state for the SPECIFIC conversation
+        set((state) => ({
+          conversations: state.conversations.map((conv) =>
+            conv.id === conversationId
+              ? {
+                  ...conv,
+                  messages: [...conv.messages, normalizedMessage],
+                  updatedAt: new Date().toISOString(),
+                }
+              : conv
+          ),
+        }));
+        
+        // Sync with backend
+        if (username && conversationId.startsWith('chat_')) {
+          try {
+            const response = await fetch(`${API_URL}/chats/${conversationId}/messages`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                role: message.type,
+                content: message.content,
+                execution_data: executionDataForBackend,
+              }),
+            });
+            if (response.ok) {
+              const data = await response.json();
+              if (data.chatTitle && data.chatTitle !== 'New Chat') {
+                set((state) => ({
+                  conversations: state.conversations.map(conv =>
+                    conv.id === conversationId
+                      ? { ...conv, title: data.chatTitle }
+                      : conv
+                  ),
+                }));
+              }
+            }
+          } catch (error) {
+            console.error('Failed to save message to conversation:', error);
+          }
+        }
+      },
       
       // Add message to active conversation
       addMessage: async (message, username) => {
@@ -287,6 +443,9 @@ export const useChatStore = create(
         const { conversations, activeConversationId } = get();
         return conversations.find((c) => c.id === activeConversationId);
       },
+      
+      // Hydration state - tracks when localStorage state is restored
+      _hasHydrated: false,
     }),
     {
       name: 'magentic-chat-storage',
@@ -295,6 +454,16 @@ export const useChatStore = create(
         // Only persist the active conversation ID for UX continuity
         activeConversationId: state.activeConversationId,
       }),
+      onRehydrateStorage: () => (state, error) => {
+        // This is called AFTER hydration completes (state is restored from localStorage)
+        if (error) {
+          console.error('[ChatStore] Hydration error:', error);
+        } else {
+          console.log('[ChatStore] Hydration complete, activeConversationId:', state?.activeConversationId);
+        }
+        // Mark hydration complete regardless of error
+        useChatStore.setState({ _hasHydrated: true });
+      },
     }
   )
 );
@@ -420,9 +589,12 @@ export const useKnowledgeBaseStore = create((set, get) => ({
     set({ isLoading: true });
     try {
       const response = await fetch(`${API_URL}/documents/sources`);
-      const data = await response.json();
       if (response.ok) {
+        const data = await response.json();
         set({ sources: data.sources || [] });
+      } else if (response.status === 503) {
+        // RAG service not enabled - silently ignore
+        set({ sources: [] });
       }
     } catch (error) {
       console.error('Failed to fetch KB sources:', error);

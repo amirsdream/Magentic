@@ -15,6 +15,7 @@ import {
   Moon,
   Sun,
   Clock,
+  Loader2,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import clsx from 'clsx';
@@ -23,7 +24,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 function Sidebar({ onOpenSettings }) {
   const { user } = useAuth();
-  const { conversations, activeConversationId, setActiveConversation, deleteConversation, createConversation } = useChatStore();
+  const { conversations, activeConversationId, setActiveConversation, deleteConversation, createConversation, executingConversationId } = useChatStore();
   const { sidebarOpen, toggleSidebar, theme, setTheme } = useUIStore();
   const [searchQuery, setSearchQuery] = React.useState('');
   const [hoveredId, setHoveredId] = React.useState(null);
@@ -75,7 +76,9 @@ function Sidebar({ onOpenSettings }) {
           {title}
         </h3>
         <div className="space-y-1">
-          {conversations.map((conv) => (
+          {conversations.map((conv) => {
+            const isExecuting = executingConversationId === conv.id;
+            return (
             <motion.button
               key={conv.id}
               initial={{ opacity: 0, x: -20 }}
@@ -88,19 +91,31 @@ function Sidebar({ onOpenSettings }) {
                 'w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 group',
                 activeConversationId === conv.id
                   ? 'bg-purple-500/20 text-gray-900 dark:text-white border border-purple-500/30'
-                  : 'hover:bg-gray-100/50 dark:hover:bg-gray-800/50 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                  : 'hover:bg-gray-100/50 dark:hover:bg-gray-800/50 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white',
+                isExecuting && activeConversationId !== conv.id && 'border border-amber-500/30 bg-amber-500/10'
               )}
             >
-              <MessageSquare className="w-4 h-4 flex-shrink-0" />
+              {isExecuting ? (
+                <Loader2 className="w-4 h-4 flex-shrink-0 text-amber-500 animate-spin" />
+              ) : (
+                <MessageSquare className="w-4 h-4 flex-shrink-0" />
+              )}
               <div className="flex-1 text-left min-w-0">
-                <p className="text-sm truncate">{conv.title}</p>
+                <p className="text-sm truncate flex items-center gap-2">
+                  {conv.title}
+                  {isExecuting && (
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-medium">
+                      Running
+                    </span>
+                  )}
+                </p>
                 <p className="text-xs text-gray-500 flex items-center gap-1">
                   <Clock className="w-3 h-3" />
                   {formatDistanceToNow(new Date(conv.updatedAt), { addSuffix: true })}
                 </p>
               </div>
               <AnimatePresence>
-                {hoveredId === conv.id && (
+                {hoveredId === conv.id && !isExecuting && (
                   <motion.span
                     initial={{ opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -124,7 +139,8 @@ function Sidebar({ onOpenSettings }) {
                 )}
               </AnimatePresence>
             </motion.button>
-          ))}
+          );
+          })}
         </div>
       </div>
     );
@@ -159,13 +175,20 @@ function Sidebar({ onOpenSettings }) {
 
               {/* New Chat Button */}
               <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => createConversation(username)}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 dark:from-purple-600 dark:to-pink-600 hover:from-violet-500 hover:to-fuchsia-500 dark:hover:from-purple-500 dark:hover:to-pink-500 text-white font-medium shadow-lg shadow-violet-500/20 dark:shadow-purple-500/25 transition-all duration-200"
+                whileHover={!executingConversationId ? { scale: 1.02 } : {}}
+                whileTap={!executingConversationId ? { scale: 0.98 } : {}}
+                onClick={() => !executingConversationId && createConversation(username)}
+                disabled={!!executingConversationId}
+                className={clsx(
+                  "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-medium shadow-lg transition-all duration-200",
+                  executingConversationId
+                    ? "bg-gray-400 dark:bg-gray-600 text-gray-200 cursor-not-allowed shadow-none"
+                    : "bg-gradient-to-r from-violet-600 to-fuchsia-600 dark:from-purple-600 dark:to-pink-600 hover:from-violet-500 hover:to-fuchsia-500 dark:hover:from-purple-500 dark:hover:to-pink-500 text-white shadow-violet-500/20 dark:shadow-purple-500/25"
+                )}
+                title={executingConversationId ? "Wait for current query to complete" : "Start a new chat"}
               >
                 <MessageSquarePlus className="w-5 h-5" />
-                New Chat
+                {executingConversationId ? 'Query Running...' : 'New Chat'}
               </motion.button>
             </div>
 

@@ -153,7 +153,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         for (const agent of data.data.agents) {
           const existing = existingAgentStates.get(agent.agent_id);
           if (existing) {
-            // Preserve existing state - CRITICAL: keep logs, status, input, output, etc.
+            // Preserve existing state - CRITICAL: keep logs, status, input, output, startTime, etc.
             const preservedStatus = (existing.status === AGENT_STATUS.RUNNING || existing.status === AGENT_STATUS.COMPLETE)
               ? existing.status 
               : normalizeStatus(agent.status);
@@ -167,12 +167,17 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
               status: preservedStatus,
             });
           } else {
-            // New agent from plan
-            console.log(`📋 NEW: ${agent.agent_id} status=${normalizeStatus(agent.status)}`);
+            // New agent from plan - set startTime for coordinator (layer 0) from execution start
+            const isCoordinator = (agent.layer ?? 0) === 0;
+            const agentStartTime = isCoordinator && prev?.startedAt 
+              ? new Date(prev.startedAt).getTime() 
+              : null; // Other agents get startTime when they actually start via agent_start
+            console.log(`📋 NEW: ${agent.agent_id} status=${normalizeStatus(agent.status)} startTime=${agentStartTime}`);
             mergedAgents.push({
               ...agent,
               status: normalizeStatus(agent.status),
               logs: agent.logs || [],
+              startTime: agentStartTime,
             });
           }
         }
@@ -200,6 +205,12 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
     case WEBSOCKET_EVENTS.AGENT_START:
       console.log('🚀 Agent start received:', data.data.agent_id);
       setCurrentExecution((prev) => {
+        // Use execution startedAt for coordinator (layer 0), Date.now() for other agents
+        const isCoordinator = (data.data.layer ?? 0) === 0;
+        const agentStartTime = isCoordinator && prev?.startedAt 
+          ? new Date(prev.startedAt).getTime() 
+          : Date.now();
+        
         // If no agents yet (null or empty), create the agent on-the-fly
         if (!prev?.agents || !Array.isArray(prev.agents) || prev.agents.length === 0) {
           console.log('🚀 Creating agent on-the-fly for agent_start:', data.data.agent_id);
@@ -212,7 +223,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
               layer: data.data.layer ?? 0,
               status: AGENT_STATUS.RUNNING,
               input: data.data.input,
-              startTime: Date.now(),
+              startTime: agentStartTime,
               logs: [],
             }],
           };
@@ -234,7 +245,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
               layer: data.data.layer ?? 0,
               status: AGENT_STATUS.RUNNING,
               input: data.data.input,
-              startTime: Date.now(),
+              startTime: agentStartTime,
               logs: [],
             }],
           };
@@ -246,7 +257,8 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
                 ...agent,
                 status: AGENT_STATUS.RUNNING,
                 input: data.data.input,
-                startTime: Date.now(),
+                // Preserve existing startTime if agent already has one, otherwise use calculated time
+                startTime: agent.startTime || agentStartTime,
               }
             : agent
         );
@@ -282,6 +294,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
               tool_calls: data.data.tool_calls,
               token_usage: data.data.token_usage,
               artifacts: data.data.artifacts || [],
+              startTime: prev?.startedAt ? new Date(prev.startedAt).getTime() : Date.now(),
               endTime: Date.now(),
               logs: [],
             }],
@@ -308,6 +321,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
               tool_calls: data.data.tool_calls,
               token_usage: data.data.token_usage,
               artifacts: data.data.artifacts || [],
+              startTime: prev?.startedAt ? new Date(prev.startedAt).getTime() : Date.now(),
               endTime: Date.now(),
               logs: [],
             }],
@@ -316,23 +330,32 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
 
         // Update existing agent
         console.log('✅ Marking agent complete:', data.data.agent_id);
-        const updatedAgents = prev.agents.map((agent) =>
-          agent.agent_id === data.data.agent_id
-            ? {
-                ...agent,  // Preserve logs and other state
-                status: AGENT_STATUS.COMPLETE,
-                input: data.data.input || agent.input,
-                output: data.data.output,
-                output_length: data.data.output_length,
-                tool_calls: data.data.tool_calls,
-                token_usage: data.data.token_usage,
-                artifacts: data.data.artifacts || [],
-                endTime: Date.now(),
-              }
-            : agent
-        );
+        const updatedAgents = prev.agents.map((agent) => {
+          if (agent.agent_id === data.data.agent_id) {
+            // Calculate startTime - preserve existing, or use execution start for coordinator
+            const isCoordinator = (agent.layer ?? 0) === 0;
+            const preservedStartTime = agent.startTime || 
+              (isCoordinator && prev?.startedAt ? new Date(prev.startedAt).getTime() : Date.now());
+            
+            console.log(`✅ Agent ${agent.agent_id} startTime=${preservedStartTime} endTime=${Date.now()}`);
+            
+            return {
+              ...agent,  // Preserve logs and other state
+              status: AGENT_STATUS.COMPLETE,
+              input: data.data.input || agent.input,
+              output: data.data.output,
+              output_length: data.data.output_length,
+              tool_calls: data.data.tool_calls,
+              token_usage: data.data.token_usage,
+              artifacts: data.data.artifacts || [],
+              startTime: preservedStartTime,  // Explicitly preserve/set startTime
+              endTime: Date.now(),
+            };
+          }
+          return agent;
+        });
         
-        console.log('✅ RESULT:', updatedAgents.map(a => ({ id: a.agent_id, status: a.status })));
+        console.log('✅ RESULT:', updatedAgents.map(a => ({ id: a.agent_id, status: a.status, startTime: a.startTime })));
         return {
           ...prev,
           agents: updatedAgents,
@@ -412,6 +435,19 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         // Include artifacts and references in execution data for persistence
         executionData.artifacts = data.data.artifacts || [];
         executionData.references = data.data.references || [];
+        
+        // Mark ALL agents as complete when execution finishes
+        // Any running or pending agents should be marked complete
+        if (executionData.agents) {
+          const endTime = Date.now();
+          executionData.agents = executionData.agents.map((agent) => ({
+            ...agent,
+            status: (agent.status === AGENT_STATUS.RUNNING || agent.status === AGENT_STATUS.PENDING)
+              ? AGENT_STATUS.COMPLETE
+              : agent.status,
+            endTime: agent.endTime || endTime,
+          }));
+        }
       }
 
       // Add the assistant response message immediately (execution stays visible)

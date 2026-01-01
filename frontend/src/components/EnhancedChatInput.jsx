@@ -35,7 +35,8 @@ function EnhancedChatInput({
   isConnected = true,
   disabled = false,
   isProcessing = false,
-  showSuggestions = true 
+  showSuggestions = true,
+  disabledMessage = null,
 }) {
   // Internal state for uncontrolled mode
   const [internalValue, setInternalValue] = useState('');
@@ -183,7 +184,7 @@ function EnhancedChatInput({
               onKeyDown={handleKeyDown}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
-              placeholder={isExecuting ? 'Processing...' : 'Message Magentic...'}
+              placeholder={disabledMessage || (isExecuting ? 'Processing...' : 'Message Magentic...')}
               disabled={isExecuting}
               rows={1}
               className={clsx(

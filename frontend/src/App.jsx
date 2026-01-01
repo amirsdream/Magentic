@@ -12,6 +12,7 @@ import {
   Header,
   EmptyState,
   LoginModal,
+  LoadingScreen,
   ProfileModal,
   Sidebar,
   MessageBubble,
@@ -36,9 +37,19 @@ function App() {
   
   // Chat store for persistence - only get what we need to avoid re-renders
   const activeConversationId = useChatStore((state) => state.activeConversationId);
+  const isInitialized = useChatStore((state) => state.isInitialized);
+  const isLoadingChats = useChatStore((state) => state.isLoading);
   const loadChats = useChatStore((state) => state.loadChats);
   const createConversation = useChatStore((state) => state.createConversation);
   const addMessage = useChatStore((state) => state.addMessage);
+  const addMessageToConversation = useChatStore((state) => state.addMessageToConversation);
+  
+  // Execution tracking per conversation
+  const executingConversationId = useChatStore((state) => state.executingConversationId);
+  const setExecutingConversation = useChatStore((state) => state.setExecutingConversation);
+  const setConversationExecution = useChatStore((state) => state.setConversationExecution);
+  const getConversationExecution = useChatStore((state) => state.getConversationExecution);
+  const clearConversationExecution = useChatStore((state) => state.clearConversationExecution);
   
   // Local state for current session messages
   const [messages, setMessages] = useState([]);
@@ -72,14 +83,31 @@ function App() {
   // Refs
   const messagesEndRef = useRef(null);
   const executionRef = useRef(null);
+  const executingConvIdRef = useRef(null); // Track which conversation started the execution
 
   // Keep execution ref in sync with state
   useEffect(() => {
     executionRef.current = currentExecution;
   }, [currentExecution]);
+  
+  // Keep executing conversation ref in sync
+  useEffect(() => {
+    executingConvIdRef.current = executingConversationId;
+  }, [executingConversationId]);
+  
+  // Also sync execution to store whenever it changes (for conversation switching)
+  useEffect(() => {
+    if (executingConversationId && currentExecution) {
+      setConversationExecution(executingConversationId, currentExecution);
+    }
+  }, [currentExecution, executingConversationId, setConversationExecution]);
 
   // Message handler for WebSocket
   const handleWebSocketMessage = useCallback((data) => {
+    // Get which conversation this execution belongs to
+    const targetConvId = executingConvIdRef.current;
+    const isViewingExecutingConv = targetConvId === useChatStore.getState().activeConversationId;
+    
     // For stopped events, capture execution BEFORE processing clears it
     let stoppedExecutionData = null;
     if (data.type === 'stopped' && executionRef.current) {
@@ -98,7 +126,42 @@ function App() {
       }
     }
     
-    processWebSocketMessage(data, setCurrentExecution, setMessages, executionRef);
+    // Create wrapped setters that also update the conversation execution store
+    const wrappedSetExecution = (newExecution) => {
+      // If it's a function, apply it to current ref
+      const resolvedExecution = typeof newExecution === 'function' 
+        ? newExecution(executionRef.current)
+        : newExecution;
+      
+      // Update the ref
+      executionRef.current = resolvedExecution;
+      
+      // Update local UI state only if viewing the executing conversation
+      if (isViewingExecutingConv) {
+        setCurrentExecution(resolvedExecution);
+      }
+      
+      // Always update the stored execution for the target conversation
+      if (targetConvId && resolvedExecution) {
+        setConversationExecution(targetConvId, resolvedExecution);
+      }
+    };
+    
+    // Wrapper for setMessages that only updates if viewing executing conversation
+    // EXCEPT for complete/stopped events - we handle those ourselves with addMessage
+    const wrappedSetMessages = (updater) => {
+      // Skip message updates for complete/stopped - we handle those separately
+      // to ensure they go to the correct conversation
+      if (data.type === 'complete' || data.type === 'stopped') {
+        return;
+      }
+      if (isViewingExecutingConv) {
+        setMessages(updater);
+      }
+    };
+    
+    // Process the message with wrapped setters
+    processWebSocketMessage(data, wrappedSetExecution, wrappedSetMessages, executionRef);
     
     // Update execution store for visualization
     if (data.type === 'agent_start' || data.type === 'agent_end' || data.type === 'tool_start') {
@@ -118,40 +181,98 @@ function App() {
         executionData.token_usage = data.data.token_usage;
       }
       
-      // Save as last execution for quick access
-      if (executionData) {
+      // Save as last execution for quick access (only if viewing this conversation)
+      if (executionData && isViewingExecutingConv) {
         setLastExecution(executionData);
       }
       
-      addMessage({
+      // Create the assistant message
+      const assistantMessage = {
+        id: `assistant-${Date.now()}`,
         type: 'assistant',
         content: data.data.output,
         execution: executionData,
-        // Include artifacts and references for persistence
         artifacts: data.data.artifacts || [],
         references: data.data.references || [],
         timestamp: new Date(),
-      }, username);
+      };
+      
+      // Save to the EXECUTING conversation (not necessarily active one)
+      const execConvId = targetConvId;
+      if (execConvId) {
+        // If viewing the executing conversation, add to local messages state
+        if (isViewingExecutingConv) {
+          setMessages((msgs) => [...msgs, assistantMessage]);
+        }
+        
+        // Add to store for the correct conversation (without switching active)
+        addMessageToConversation(execConvId, {
+          type: 'assistant',
+          content: data.data.output,
+          execution: executionData,
+          artifacts: data.data.artifacts || [],
+          references: data.data.references || [],
+          timestamp: new Date(),
+        }, username);
+        
+        // Clear the executing conversation state
+        clearConversationExecution(execConvId);
+        setExecutingConversation(null);
+        executingConvIdRef.current = null;
+        
+        // Clear local execution state if viewing this conversation
+        if (isViewingExecutingConv) {
+          setCurrentExecution(null);
+        }
+      }
     }
     
     // Save stopped execution to chat store (for backend persistence)
     if (data.type === 'stopped') {
       const username = user?.username || 'guest';
+      const execConvId = targetConvId;
       
-      // Save as last execution
-      if (stoppedExecutionData) {
+      // Save as last execution (only if viewing)
+      if (stoppedExecutionData && isViewingExecutingConv) {
         setLastExecution(stoppedExecutionData);
       }
       
-      // Add message with captured execution data
-      addMessage({
+      // Create the stopped message
+      const stoppedMessage = {
+        id: `stopped-${Date.now()}`,
         type: 'assistant',
         content: data.message || 'Execution stopped by user',
         execution: stoppedExecutionData,
         timestamp: new Date(),
-      }, username);
+      };
+      
+      // Add message to the executing conversation
+      if (execConvId) {
+        // If viewing the executing conversation, add to local messages state
+        if (isViewingExecutingConv) {
+          setMessages((msgs) => [...msgs, stoppedMessage]);
+        }
+        
+        // Add to store for the correct conversation (without switching active)
+        addMessageToConversation(execConvId, {
+          type: 'assistant',
+          content: data.message || 'Execution stopped by user',
+          execution: stoppedExecutionData,
+          timestamp: new Date(),
+        }, username);
+        
+        // Clear executing state
+        clearConversationExecution(execConvId);
+        setExecutingConversation(null);
+        executingConvIdRef.current = null;
+        
+        // Clear local execution state if viewing this conversation
+        if (isViewingExecutingConv) {
+          setCurrentExecution(null);
+        }
+      }
     }
-  }, [setExecution, user, addMessage, setLastExecution]);
+  }, [setExecution, user, addMessage, addMessageToConversation, setLastExecution, setConversationExecution, clearConversationExecution, setExecutingConversation]);
 
   // WebSocket connection
   const { isConnected, sendMessage } = useWebSocket(
@@ -211,13 +332,22 @@ function App() {
   }, [isAuthenticated, user?.username, loadChats]);
   
   // Track previous conversation ID to detect switches
-  const prevConversationIdRef = useRef(activeConversationId);
+  const prevConversationIdRef = useRef(null); // Start with null to detect initial load
+  const initialLoadDoneRef = useRef(false);
   
   // Load messages from backend when needed
   const loadChatMessages = useChatStore((state) => state.loadChatMessages);
   const conversations = useChatStore((state) => state.conversations);
   
-  // Sync messages when conversation SWITCHES (not on every message add)
+  // Find the active conversation (memoized to avoid unnecessary recalculations)
+  const activeConversation = useMemo(() => {
+    return conversations.find(c => c.id === activeConversationId);
+  }, [conversations, activeConversationId]);
+  
+  // Get stored executions for restoration
+  const executionsByConversation = useChatStore((state) => state.executionsByConversation);
+  
+  // Sync messages when conversation SWITCHES or messages are loaded
   useEffect(() => {
     // Skip if no active conversation
     if (!activeConversationId) {
@@ -225,37 +355,67 @@ function App() {
       return;
     }
     
-    // Find the active conversation
-    const activeConv = conversations.find(c => c.id === activeConversationId);
-    
     // Skip if conversation not found (might be loading)
-    if (!activeConv) {
+    if (!activeConversation) {
       return;
     }
     
     // Check if this is a conversation switch or initial load
     const isSwitch = prevConversationIdRef.current !== activeConversationId;
-    if (isSwitch) {
+    const isInitialLoad = !initialLoadDoneRef.current && isInitialized;
+    
+    console.log('[App] Message sync check:', { 
+      isSwitch, 
+      isInitialLoad, 
+      isInitialized,
+      prevId: prevConversationIdRef.current,
+      activeId: activeConversationId,
+      conversationFound: !!activeConversation,
+      synced: activeConversation?.synced,
+      messageCount: activeConversation?.messageCount,
+      loadedMessages: activeConversation?.messages?.length,
+      hasStoredExecution: !!executionsByConversation[activeConversationId],
+      executingConvId: executingConversationId,
+    });
+    
+    if (isSwitch || isInitialLoad) {
       prevConversationIdRef.current = activeConversationId;
-      setCurrentExecution(null); // Reset execution state for new/switched chat
       
-      // Only sync messages on conversation switch
-      if (activeConv.synced && activeConv.messageCount > 0 && activeConv.messages.length === 0) {
-        const username = user?.username || 'guest';
-        loadChatMessages(username, activeConversationId);
-        // Set empty messages immediately, they'll be updated when loadChatMessages completes
-        setMessages([]);
+      if (isInitialLoad) {
+        initialLoadDoneRef.current = true;
+      }
+      
+      // Check if this conversation has an active execution (switching back to running task)
+      const storedExecution = executionsByConversation[activeConversationId];
+      if (storedExecution && executingConversationId === activeConversationId) {
+        // Restore execution state - this is the running task!
+        console.log('[App] Restoring execution state for running conversation');
+        setCurrentExecution(storedExecution);
       } else {
-        setMessages(activeConv.messages || []);
+        // Not the executing conversation - clear execution state
+        setCurrentExecution(null);
+      }
+      
+      // Load messages from backend if synced but no messages loaded yet
+      if (activeConversation.synced && activeConversation.messageCount > 0 && activeConversation.messages.length === 0) {
+        const username = user?.username || 'guest';
+        console.log('[App] Loading messages for session:', activeConversationId);
+        loadChatMessages(username, activeConversationId);
+        setMessages([]); // Set empty while loading
+      } else {
+        // Use cached messages
+        console.log('[App] Using cached messages:', activeConversation.messages?.length || 0);
+        setMessages(activeConversation.messages || []);
       }
     } else {
-      // If not a switch but messages were loaded from backend, sync them
-      // This handles the case when loadChatMessages completes asynchronously
-      if (activeConv.messages.length > 0 && messages.length === 0) {
-        setMessages(activeConv.messages);
+      // Not a switch - check if messages were loaded asynchronously and need to be synced
+      // This handles the case when loadChatMessages completes
+      if (activeConversation.messages.length > 0 && activeConversation.messages.length !== messages.length) {
+        console.log('[App] Syncing messages from store:', activeConversation.messages.length);
+        setMessages(activeConversation.messages);
       }
     }
-  }, [activeConversationId, conversations, user, loadChatMessages]);
+  }, [activeConversationId, activeConversation, user, loadChatMessages, messages.length, isInitialized, executionsByConversation, executingConversationId]);
 
   // Auto-scroll to bottom
   const scrollToBottom = useCallback(() => {
@@ -293,9 +453,13 @@ function App() {
     // Save to store (which syncs to backend)
     await addMessage(userMessage, username);
 
+    // Track which conversation this execution belongs to
+    setExecutingConversation(currentConvId);
+    executingConvIdRef.current = currentConvId;
+
     // Set immediate execution state with loading indicator (single box for progress)
     // Don't set agents - let the WebSocket handler create them properly
-    setCurrentExecution({
+    const initialExecution = {
       stage: 'initializing',
       stageMessage: 'Processing your query...',
       isLoading: true,
@@ -303,11 +467,14 @@ function App() {
       plan: null,
       query: content, // Include the user's query for history display
       startedAt: new Date().toISOString(),
-    });
+    };
+    
+    setCurrentExecution(initialExecution);
+    setConversationExecution(currentConvId, initialExecution);
 
     // Send to WebSocket with session_id for tracking
     sendMessage({ query: content, session_id: currentConvId });
-  }, [isConnected, sendMessage, user, activeConversationId, createConversation, addMessage]);
+  }, [isConnected, sendMessage, user, activeConversationId, createConversation, addMessage, setExecutingConversation, setConversationExecution]);
 
   // Handle stop execution
   const handleStop = useCallback(() => {
@@ -351,7 +518,25 @@ function App() {
     }
   }, [theme, isAuthenticated, isGuest, updateProfile]);
 
-  const isProcessing = !!currentExecution;
+  // Block input when ANY execution is running (current or background)
+  const isProcessing = !!currentExecution || !!executingConversationId;
+  
+  // Check if we're viewing the executing conversation (for showing stop button)
+  const isViewingExecutingConversation = executingConversationId === activeConversationId;
+  
+  // Determine loading message
+  const loadingMessage = loading 
+    ? 'Authenticating...' 
+    : isLoadingChats 
+      ? 'Loading your conversations...' 
+      : 'Preparing workspace...';
+  
+  // Show loading screen while auth is loading OR chats are loading for authenticated user
+  const showLoadingScreen = loading || (isAuthenticated && !isInitialized);
+  
+  if (showLoadingScreen) {
+    return <LoadingScreen message={loadingMessage} />;
+  }
 
   return (
     <div className="flex h-screen overflow-hidden transition-colors duration-200 bg-slate-50 dark:bg-gray-950">
@@ -443,7 +628,12 @@ function App() {
               onStop={handleStop}
               disabled={!isConnected}
               isProcessing={isProcessing}
-              showSuggestions={messages.length === 0}
+              showSuggestions={messages.length === 0 && !isProcessing}
+              disabledMessage={
+                executingConversationId && executingConversationId !== activeConversationId
+                  ? 'A query is running in another chat...'
+                  : undefined
+              }
             />
           </motion.div>
 
@@ -455,7 +645,7 @@ function App() {
                 animate={{ width: 450, opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
                 transition={{ duration: 0.3, ease: 'easeInOut' }}
-                className="border-l border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-gray-900/50 overflow-hidden"
+                className="h-full border-l border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-gray-900/50 overflow-hidden flex flex-col"
               >
                 <WorkflowVisualization 
                   execution={currentExecution || lastExecution} 

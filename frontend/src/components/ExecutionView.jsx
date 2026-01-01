@@ -1,6 +1,7 @@
 /**
  * ExecutionView - Unified component for showing execution progress and completion
  * Adapts its appearance based on whether execution is live, completed, or stopped
+ * Shows a compact inline view - for full workflow visualization, use the side panel
  */
 
 import React, { useState } from 'react';
@@ -157,15 +158,15 @@ function ExecutionView({
           {/* Token and cost badges */}
           {hasTokens && (
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 rounded-full">
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 rounded-full shadow-sm">
                 <Coins className="w-3.5 h-3.5 text-amber-500" />
-                <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 tabular-nums">
                   {tokenUsage.total.total_tokens.toLocaleString()}
                 </span>
               </div>
-              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-500/10 border border-green-500/30 rounded-full">
-                <DollarSign className="w-3.5 h-3.5 text-green-500" />
-                <span className="text-xs font-medium text-green-600 dark:text-green-400">
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-emerald-500/10 to-green-500/10 border border-emerald-500/20 rounded-full shadow-sm">
+                <DollarSign className="w-3.5 h-3.5 text-emerald-500" />
+                <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
                   {costFormatted}
                 </span>
               </div>
@@ -193,31 +194,67 @@ function ExecutionView({
 
       {/* Token breakdown - only show when complete and has tokens */}
       {isComplete && hasTokens && (
-        <div className="mx-3 mb-3 p-2 bg-gray-50/50 dark:bg-gray-800/50 rounded-lg border border-gray-200/50 dark:border-gray-700/50">
-          <div className="grid grid-cols-4 gap-4 text-center text-xs">
-            <div>
-              <p className="text-gray-500 dark:text-gray-400">Planning</p>
-              <p className="font-medium text-gray-700 dark:text-gray-300">
-                {tokenUsage.planning?.total_tokens?.toLocaleString() || 0}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500 dark:text-gray-400">Input</p>
-              <p className="font-medium text-gray-700 dark:text-gray-300">
-                {tokenUsage.total.prompt_tokens?.toLocaleString() || 0}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500 dark:text-gray-400">Output</p>
-              <p className="font-medium text-gray-700 dark:text-gray-300">
-                {tokenUsage.total.completion_tokens?.toLocaleString() || 0}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500 dark:text-gray-400">Cost</p>
-              <p className="font-medium text-green-600 dark:text-green-400">
-                {costFormatted}
-              </p>
+        <div className="relative mx-4 mb-4">
+          {/* Glow effects underneath */}
+          <div className="absolute inset-0 -z-10">
+            <div className="absolute left-[12%] top-1/2 -translate-y-1/2 w-14 h-10 bg-violet-500/15 dark:bg-violet-500/25 rounded-full blur-2xl"></div>
+            <div className="absolute left-[37%] top-1/2 -translate-y-1/2 w-14 h-10 bg-blue-500/15 dark:bg-blue-500/25 rounded-full blur-2xl"></div>
+            <div className="absolute left-[62%] top-1/2 -translate-y-1/2 w-14 h-10 bg-emerald-500/15 dark:bg-emerald-500/25 rounded-full blur-2xl"></div>
+            <div className="absolute right-[8%] top-1/2 -translate-y-1/2 w-14 h-10 bg-amber-500/15 dark:bg-amber-500/25 rounded-full blur-2xl"></div>
+          </div>
+          
+          {/* Glass container */}
+          <div className="relative px-5 py-3.5 backdrop-blur-sm bg-white/50 dark:bg-gray-900/50 rounded-xl border border-white/60 dark:border-gray-700/40 shadow-sm">
+            <div className="flex items-center justify-around">
+              {/* Planning */}
+              <div className="flex items-center gap-2.5 px-2">
+                <div className="w-2 h-2 rounded-full bg-violet-400 shadow-sm shadow-violet-400/50 flex-shrink-0"></div>
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-gray-500 font-medium leading-none mb-1">Planning</p>
+                  <p className="text-sm font-semibold text-slate-700 dark:text-gray-200 leading-none tabular-nums">
+                    {tokenUsage.planning?.total_tokens?.toLocaleString() || 0}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="h-10 w-px bg-gradient-to-b from-transparent via-slate-200/60 dark:via-gray-600/40 to-transparent flex-shrink-0"></div>
+              
+              {/* Input */}
+              <div className="flex items-center gap-2.5 px-2">
+                <div className="w-2 h-2 rounded-full bg-blue-400 shadow-sm shadow-blue-400/50 flex-shrink-0"></div>
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-gray-500 font-medium leading-none mb-1">Input</p>
+                  <p className="text-sm font-semibold text-slate-700 dark:text-gray-200 leading-none tabular-nums">
+                    {tokenUsage.total.prompt_tokens?.toLocaleString() || 0}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="h-10 w-px bg-gradient-to-b from-transparent via-slate-200/60 dark:via-gray-600/40 to-transparent flex-shrink-0"></div>
+              
+              {/* Output */}
+              <div className="flex items-center gap-2.5 px-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50 flex-shrink-0"></div>
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-gray-500 font-medium leading-none mb-1">Output</p>
+                  <p className="text-sm font-semibold text-slate-700 dark:text-gray-200 leading-none tabular-nums">
+                    {tokenUsage.total.completion_tokens?.toLocaleString() || 0}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="h-10 w-px bg-gradient-to-b from-transparent via-slate-200/60 dark:via-gray-600/40 to-transparent flex-shrink-0"></div>
+              
+              {/* Cost */}
+              <div className="flex items-center gap-2.5 px-2">
+                <div className="w-2 h-2 rounded-full bg-amber-400 shadow-sm shadow-amber-400/50 flex-shrink-0"></div>
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-gray-500 font-medium leading-none mb-1">Cost</p>
+                  <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 leading-none tabular-nums">
+                    {costFormatted}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -233,8 +270,8 @@ function ExecutionView({
             transition={{ duration: 0.2 }}
             className={`border-t ${isStopped ? 'border-orange-500/20' : isComplete ? 'border-green-500/20' : 'border-slate-200/50 dark:border-purple-500/20'}`}
           >
-            {/* Dynamic height based on number of agents - min 250px, max 500px */}
-            <div style={{ height: `${Math.min(500, Math.max(250, totalAgents * 60 + 100))}px` }}>
+            {/* Auto height - content determines size, with max constraint */}
+            <div className="max-h-[500px] overflow-y-auto">
               <WorkflowVisualization
                 execution={execution}
                 isPanel={true}
