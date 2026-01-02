@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Toaster } from 'react-hot-toast';
+import { Sparkles } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import { useWebSocket, processWebSocketMessage } from './hooks';
 import {
@@ -22,6 +23,7 @@ import {
   ExecutionView,
   WorkflowVisualization,
   ArtifactPreviewPanel,
+  MarkdownRenderer,
 } from './components';
 import { useUIStore, useExecutionStore, useConnectionStore, useChatStore } from './store';
 
@@ -168,62 +170,29 @@ function App() {
       setExecution(data);
     }
     
-    // Save assistant response to chat store when complete (for backend persistence)
+    // Streaming is handled by processWebSocketMessage in useWebSocket.js
+    // which sets currentExecution.streamingContent - we render it below ExecutionView
+    
+    // On complete - just clear executing state, DON'T add message yet
+    // The streaming content stays visible in currentExecution
+    // Message will be saved when user sends next question (in handleSend)
     if (data.type === 'complete' && data.data?.output) {
-      const username = user?.username || 'guest';
-      // Get execution data and ensure token_usage is included
+      // Get execution data from ref (already updated by useWebSocket.js)
       const executionData = executionRef.current
         ? JSON.parse(JSON.stringify(executionRef.current))
         : null;
-      
-      // Add token usage from complete event
-      if (executionData && data.data.token_usage) {
-        executionData.token_usage = data.data.token_usage;
-      }
       
       // Save as last execution for quick access (only if viewing this conversation)
       if (executionData && isViewingExecutingConv) {
         setLastExecution(executionData);
       }
       
-      // Create the assistant message
-      const assistantMessage = {
-        id: `assistant-${Date.now()}`,
-        type: 'assistant',
-        content: data.data.output,
-        execution: executionData,
-        artifacts: data.data.artifacts || [],
-        references: data.data.references || [],
-        timestamp: new Date(),
-      };
-      
-      // Save to the EXECUTING conversation (not necessarily active one)
+      // Clear the executing conversation state (but execution/workflow stays visible!)
       const execConvId = targetConvId;
       if (execConvId) {
-        // If viewing the executing conversation, add to local messages state
-        if (isViewingExecutingConv) {
-          setMessages((msgs) => [...msgs, assistantMessage]);
-        }
-        
-        // Add to store for the correct conversation (without switching active)
-        addMessageToConversation(execConvId, {
-          type: 'assistant',
-          content: data.data.output,
-          execution: executionData,
-          artifacts: data.data.artifacts || [],
-          references: data.data.references || [],
-          timestamp: new Date(),
-        }, username);
-        
-        // Clear the executing conversation state
         clearConversationExecution(execConvId);
         setExecutingConversation(null);
         executingConvIdRef.current = null;
-        
-        // Clear local execution state if viewing this conversation
-        if (isViewingExecutingConv) {
-          setCurrentExecution(null);
-        }
       }
     }
     
@@ -440,6 +409,25 @@ function App() {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
 
+    // If there's a completed execution with streaming content, save it as a message first
+    // This preserves the previous Q&A before starting a new one
+    if (currentExecution?.stage === 'complete' && currentExecution?.streamingContent) {
+      const prevAssistantMessage = {
+        id: `assistant-${Date.now() - 1}`,
+        type: 'assistant',
+        content: currentExecution.streamingContent,
+        execution: currentExecution,
+        artifacts: currentExecution.artifacts || [],
+        references: currentExecution.references || [],
+        timestamp: new Date(),
+      };
+      // Add to local messages for immediate display
+      setMessages((prev) => [...prev, prevAssistantMessage]);
+      // Also add to store so it doesn't get overwritten by sync
+      // This updates store AND saves to backend
+      addMessageToConversation(currentConvId, prevAssistantMessage, username);
+    }
+
     const userMessage = {
       id: `user-${Date.now()}`,
       type: 'user',
@@ -474,7 +462,7 @@ function App() {
 
     // Send to WebSocket with session_id for tracking
     sendMessage({ query: content, session_id: currentConvId });
-  }, [isConnected, sendMessage, user, activeConversationId, createConversation, addMessage, setExecutingConversation, setConversationExecution]);
+  }, [isConnected, sendMessage, user, activeConversationId, createConversation, addMessage, addMessageToConversation, setExecutingConversation, setConversationExecution, currentExecution]);
 
   // Handle stop execution
   const handleStop = useCallback(() => {
@@ -518,8 +506,9 @@ function App() {
     }
   }, [theme, isAuthenticated, isGuest, updateProfile]);
 
-  // Block input when ANY execution is running (current or background)
-  const isProcessing = !!currentExecution || !!executingConversationId;
+  // Block input only when execution is actively running (not when complete)
+  const isActivelyExecuting = currentExecution && currentExecution.stage !== 'complete' && currentExecution.stage !== 'stopped';
+  const isProcessing = isActivelyExecuting || (executingConversationId && executingConversationId !== activeConversationId);
   
   // Check if we're viewing the executing conversation (for showing stop button)
   const isViewingExecutingConversation = executingConversationId === activeConversationId;
@@ -616,6 +605,37 @@ function App() {
                     showAvatar={true}
                     onRetry={handleSend}
                   />
+                </motion.div>
+              )}
+
+              {/* Streaming response - shows below workflow while final agent is generating */}
+              {/* Show while isStreaming OR while we have streamingContent (until complete clears it) */}
+              {currentExecution?.streamingContent && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="flex gap-3"
+                >
+                  {/* Avatar */}
+                  <div className="relative flex-shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-r from-cyan-500 to-purple-500 flex items-center justify-center">
+                      <Sparkles className="w-4 h-4 text-white animate-pulse" />
+                    </div>
+                    {currentExecution.isStreaming && (
+                      <div className="absolute inset-0 bg-purple-500/30 rounded-full blur-lg animate-pulse" />
+                    )}
+                  </div>
+
+                  <div className="flex-1 max-w-4xl">
+                    <div className="bg-white/70 dark:bg-gray-800/60 backdrop-blur-sm border border-slate-200/80 dark:border-purple-500/20 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm dark:shadow-lg">
+                      <MarkdownRenderer content={currentExecution.streamingContent} />
+                      {/* Typing cursor - only show while actively streaming */}
+                      {currentExecution.isStreaming && (
+                        <span className="inline-block w-2 h-4 bg-violet-500 dark:bg-purple-400 animate-pulse ml-0.5 align-middle" />
+                      )}
+                    </div>
+                  </div>
                 </motion.div>
               )}
 

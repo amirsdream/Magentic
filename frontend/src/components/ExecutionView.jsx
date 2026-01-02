@@ -260,6 +260,10 @@ function ExecutionView({
         </div>
       )}
 
+      {/* NOTE: Streaming response preview removed - users prefer to see the workflow 
+          without the response preview on top. The final response appears as a 
+          normal chat bubble when execution completes. */}
+
       {/* Expandable Workflow Visualization */}
       <AnimatePresence>
         {showFlow && (

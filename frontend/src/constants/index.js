@@ -15,6 +15,9 @@ export const WEBSOCKET_EVENTS = {
   AGENT_START: 'agent_start',
   AGENT_LOG: 'agent_log',
   AGENT_COMPLETE: 'agent_complete',
+  STREAM_TOKEN: 'stream_token',  // Streaming response tokens
+  STREAM_START: 'stream_start',  // Start of streaming response
+  STREAM_END: 'stream_end',      // End of streaming response
   COMPLETE: 'complete',
   STOPPED: 'stopped',
   ERROR: 'error',

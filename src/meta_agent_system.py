@@ -3,7 +3,7 @@
 import logging
 import json
 import asyncio
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable
 from pathlib import Path
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -81,6 +81,20 @@ class MetaAgentSystem:
         # Concurrency control - limit parallel agents to prevent system overload
         self.max_parallel_agents = config.max_parallel_agents
         self._semaphore = asyncio.Semaphore(self.max_parallel_agents)
+        
+        # Streaming callback for final agent response
+        self._stream_callback: Optional[Callable[[str], Any]] = None
+        self._stream_agent_id: Optional[str] = None  # Which agent should stream
+
+    def set_stream_callback(self, callback: Optional[Callable[[str], Any]], agent_id: Optional[str] = None) -> None:
+        """Set callback for streaming final agent response.
+        
+        Args:
+            callback: Async function(token: str) to call for each token
+            agent_id: Optional agent ID that should stream (last agent)
+        """
+        self._stream_callback = callback
+        self._stream_agent_id = agent_id
 
     def set_session(self, session_id: Optional[str]) -> None:
         """Set the current session and switch conversation history.
@@ -219,6 +233,63 @@ class MetaAgentSystem:
             # Track as general usage if no agent context
             usage = tracker.extract_usage_from_response(response)
             logger.debug(f"Tracked general tokens: {usage.to_dict()}")
+
+    async def _invoke_with_streaming(
+        self, 
+        messages: list, 
+        config: RunnableConfig, 
+        agent_id: str,
+        role_name: str
+    ) -> str:
+        """Invoke LLM with optional streaming for final agent.
+        
+        Args:
+            messages: Messages to send to LLM
+            config: Runnable config
+            agent_id: Current agent ID
+            role_name: Role name for tracking
+            
+        Returns:
+            Response content as string
+        """
+        # Check if this agent should stream
+        should_stream = (
+            self._stream_callback is not None and 
+            self._stream_agent_id == agent_id
+        )
+        
+        if should_stream:
+            logger.info(f"🌊 Streaming response for final agent: {agent_id}")
+            content_parts = []
+            try:
+                async for chunk in self.llm.astream(messages, config=config):
+                    if hasattr(chunk, 'content') and chunk.content:
+                        token = chunk.content
+                        # Ensure token is a string
+                        if isinstance(token, list):
+                            token = ''.join(str(t) if isinstance(t, str) else '' for t in token)
+                        token = str(token)
+                        content_parts.append(token)
+                        # Call the callback with each token
+                        if self._stream_callback:
+                            await self._stream_callback(token)
+                
+                full_content = ''.join(content_parts)
+                # Create a mock response for token tracking
+                # Note: We can't get accurate token counts from streaming
+                logger.info(f"✅ Streamed {len(full_content)} chars for {agent_id}")
+                return full_content
+            except Exception as e:
+                logger.error(f"Streaming error for {agent_id}: {e}")
+                # Fallback to non-streaming
+                response = self.llm.invoke(messages, config=config)
+                self._track_tokens(response, agent_id, role_name)
+                return str(response.content)
+        else:
+            # Normal non-streaming invoke
+            response = self.llm.invoke(messages, config=config)
+            self._track_tokens(response, agent_id, role_name)
+            return str(response.content)
 
     def process_query(
         self, query: str, depth: int = 0, max_depth: int | None = None
@@ -754,23 +825,142 @@ class MetaAgentSystem:
         # Ensure conversation_history is a list (not None) for thread pool
         conv_hist = conversation_history if conversation_history is not None else []
 
-        # Execute in thread pool - pass agent_id for token tracking
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None,
-            self._execute_agent,
-            role_obj,
-            task,
-            original_query,
-            previous_outputs,
-            conv_hist,
-            0,
-            3,
-            agent_id,  # Pass agent_id for token tracking
+        # Check if this is the final agent that should stream
+        # BUT only stream if the role doesn't need tools - streaming bypasses tool execution!
+        should_stream = (
+            self._stream_callback is not None and 
+            self._stream_agent_id == agent_id and
+            not role_obj.needs_tools  # Don't stream if agent needs tools
         )
+        
+        if should_stream:
+            # Use async streaming path for final agent (only if no tools needed)
+            logger.info(f"🌊 Using streaming execution for final agent: {agent_id}")
+            result = await self._execute_agent_streaming(
+                role_obj,
+                task,
+                original_query,
+                previous_outputs,
+                conv_hist,
+                agent_id,
+            )
+        else:
+            # Log why not streaming if it was the target agent
+            if self._stream_callback and self._stream_agent_id == agent_id and role_obj.needs_tools:
+                logger.info(f"⚠️ Agent {agent_id} needs tools, using non-streaming execution with full tool support")
+            
+            # Execute in thread pool - pass agent_id for token tracking
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                self._execute_agent,
+                role_obj,
+                task,
+                original_query,
+                previous_outputs,
+                conv_hist,
+                0,
+                3,
+                agent_id,  # Pass agent_id for token tracking
+            )
 
         logger.info(f"✅ {agent_id} ({role}) completed")
         return result
+    
+    async def _execute_agent_streaming(
+        self,
+        role,
+        task: str,
+        original_query: str,
+        previous_outputs: List[str],
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        agent_id: str = "",
+    ) -> Dict[str, Any]:
+        """Execute an agent with streaming output.
+        
+        This is used for the final agent to stream response tokens in real-time.
+        
+        Args:
+            role: Agent role definition.
+            task: Specific task for this agent.
+            original_query: Original user query.
+            previous_outputs: Outputs from previous agents.
+            conversation_history: Previous conversation steps.
+            agent_id: Agent identifier.
+            
+        Returns:
+            Dict with 'content' (agent's text output) and 'tool_calls' (empty for streaming).
+        """
+        from langchain_core.messages import SystemMessage, HumanMessage
+        
+        # Build context
+        context_parts = [f"Original question: {original_query}"]
+        
+        # Add conversation history from previous steps if available
+        if conversation_history:
+            context_parts.append("\n=== Previous Agent Conversation Steps ===")
+            for i, step in enumerate(conversation_history[-3:], 1):
+                context_parts.append(
+                    f"\nStep {i} - {step.get('role', 'unknown')} ({step.get('agent_id', '')}):"
+                )
+                context_parts.append(f"  Task: {step.get('task', '')[:200]}")
+                step_output = step.get("output", "")
+                output_preview = (
+                    step_output[:self.config.agent_history_limit] + "..."
+                    if len(step_output) > self.config.agent_history_limit
+                    else step_output
+                )
+                context_parts.append(f"  Output: {output_preview}")
+        
+        # Add user conversation history if available
+        if self.conversation_history:
+            context_parts.append("\nConversation history (recent):")
+            recent = self.conversation_history[-4:]
+            for msg in recent:
+                role_label = "User" if msg["role"] == "user" else "Assistant"
+                content = (
+                    msg["content"][:150] + "..." if len(msg["content"]) > 150 else msg["content"]
+                )
+                context_parts.append(f"  {role_label}: {content}")
+        
+        if previous_outputs:
+            context_parts.append("\n=== Outputs from Previous Agents ===")
+            for i, output in enumerate(previous_outputs, 1):
+                output_display = (
+                    output[:self.config.agent_context_limit] + "... [truncated]"
+                    if len(output) > self.config.agent_context_limit
+                    else output
+                )
+                context_parts.append(f"\nAgent {i} output:\n{output_display}")
+        else:
+            context_parts.append("\n=== You are the first agent ===")
+            context_parts.append("No prior agent outputs available yet.")
+        
+        context = "\n".join(context_parts)
+        
+        # Build messages
+        output_limit_instruction = f"\n\nIMPORTANT: Keep your response concise and under {self.config.ui_display_limit} characters. Be direct and focused."
+        system_msg = SystemMessage(content=role.system_prompt + output_limit_instruction)
+        task_msg = HumanMessage(content=f"{context}\n\nYour task: {task}")
+        
+        # Add metadata for Phoenix tracing
+        metadata = {"agent_role": role.name, "agent_task": task, "streaming": True}
+        config: RunnableConfig = {
+            "run_name": f"{role.name}_agent_streaming",
+            "metadata": metadata,
+            "tags": [role.name, "meta_agent", "streaming"],
+        }
+        
+        messages = [system_msg, task_msg]
+        
+        # Use streaming invocation
+        content = await self._invoke_with_streaming(messages, config, agent_id, role.name)
+        
+        return {
+            "content": content,
+            "tool_calls": [],  # Tools not supported in streaming mode
+            "artifacts": [],
+        }
 
     def _execute_agent(
         self,

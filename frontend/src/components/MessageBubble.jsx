@@ -3,9 +3,7 @@
  */
 import React, { useState, forwardRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeHighlight from 'rehype-highlight';
+import MarkdownRenderer from './MarkdownRenderer';
 import {
   User,
   Copy,
@@ -215,36 +213,10 @@ const CitationBadge = ({ index, reference }) => {
 };
 
 // Custom markdown renderer that handles inline citations [1], [2], etc.
-const MarkdownWithCitations = ({ content, references, onCopy, copied }) => {
-  // If no references, render normally
+const MarkdownWithCitations = ({ content, references }) => {
+  // If no references, render with enhanced markdown
   if (!references || references.length === 0) {
-    return (
-      <ReactMarkdown 
-        remarkPlugins={[remarkGfm]} 
-        rehypePlugins={[rehypeHighlight]}
-        components={{
-          pre: ({ children }) => (
-            <div className="relative group/code">
-              <pre className="!bg-slate-100 dark:!bg-gray-900/80 !border-slate-200 dark:!border-purple-500/20 overflow-x-auto">
-                {children}
-              </pre>
-              <button
-                onClick={onCopy}
-                className="absolute top-2 right-2 p-1.5 rounded-lg bg-slate-200/70 dark:bg-gray-700/50 opacity-0 group-hover/code:opacity-100 transition-opacity"
-              >
-                {copied ? (
-                  <Check className="w-4 h-4 text-green-500 dark:text-green-400" />
-                ) : (
-                  <Copy className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                )}
-              </button>
-            </div>
-          ),
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    );
+    return <MarkdownRenderer content={content} />;
   }
 
   // Split content by citation markers [1], [2], etc.
@@ -300,37 +272,8 @@ const MarkdownWithCitations = ({ content, references, onCopy, copied }) => {
         if (part.type === 'citation') {
           return <CitationBadge key={`cite-${idx}`} index={part.index} reference={part.reference} />;
         }
-        // Render markdown for text parts
-        return (
-          <ReactMarkdown 
-            key={`text-${idx}`}
-            remarkPlugins={[remarkGfm]} 
-            rehypePlugins={[rehypeHighlight]}
-            components={{
-              // Render inline to avoid extra divs
-              p: ({ children }) => <span>{children}</span>,
-              pre: ({ children }) => (
-                <div className="relative group/code">
-                  <pre className="!bg-slate-100 dark:!bg-gray-900/80 !border-slate-200 dark:!border-purple-500/20 overflow-x-auto">
-                    {children}
-                  </pre>
-                  <button
-                    onClick={onCopy}
-                    className="absolute top-2 right-2 p-1.5 rounded-lg bg-slate-200/70 dark:bg-gray-700/50 opacity-0 group-hover/code:opacity-100 transition-opacity"
-                  >
-                    {copied ? (
-                      <Check className="w-4 h-4 text-green-500 dark:text-green-400" />
-                    ) : (
-                      <Copy className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                    )}
-                  </button>
-                </div>
-              ),
-            }}
-          >
-            {part.content}
-          </ReactMarkdown>
-        );
+        // Render markdown for text parts using enhanced renderer
+        return <MarkdownRenderer key={`text-${idx}`} content={part.content} />;
       })}
     </>
   );
@@ -462,6 +405,44 @@ const MessageBubble = forwardRef(function MessageBubble({ message, messageId, to
     );
   }
 
+  // Streaming message - shows content as it comes in with typing cursor
+  if (message.isStreaming || (message.content && message.id?.startsWith('streaming'))) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+        className="flex gap-3"
+      >
+        {/* Avatar */}
+        <div className="relative flex-shrink-0">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-r from-cyan-500 to-purple-500 flex items-center justify-center">
+            <Sparkles className="w-4 h-4 text-white animate-pulse" />
+          </div>
+          <div className="absolute inset-0 bg-purple-500/30 rounded-full blur-lg animate-pulse" />
+        </div>
+
+        <div className="flex-1 max-w-4xl">
+          <div className="bg-white/70 dark:bg-gray-800/60 backdrop-blur-sm border border-slate-200/80 dark:border-purple-500/20 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm dark:shadow-lg">
+            <div className="markdown-content prose prose-slate dark:prose-invert prose-sm max-w-none">
+              {message.content ? (
+                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                  {message.content}
+                </ReactMarkdown>
+              ) : (
+                <span className="text-gray-400">Generating response...</span>
+              )}
+              {/* Typing cursor */}
+              {message.isStreaming && (
+                <span className="inline-block w-2 h-4 bg-violet-500 dark:bg-purple-400 animate-pulse ml-0.5 align-middle" />
+              )}
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
   // Assistant message
   return (
     <motion.div
@@ -502,14 +483,10 @@ const MessageBubble = forwardRef(function MessageBubble({ message, messageId, to
           className="relative group"
         >
           <div className="bg-white/70 dark:bg-gray-800/60 backdrop-blur-sm border border-slate-200/80 dark:border-purple-500/20 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm dark:shadow-lg">
-            <div className="markdown-content prose prose-slate dark:prose-invert prose-sm max-w-none">
-              <MarkdownWithCitations 
-                content={message.content}
-                references={message.references}
-                onCopy={handleCopy}
-                copied={copied}
-              />
-            </div>
+            <MarkdownWithCitations 
+              content={message.content}
+              references={message.references}
+            />
             
             {/* Artifacts - created files */}
             <Artifacts artifacts={message.artifacts} onPreview={onPreviewArtifact} />

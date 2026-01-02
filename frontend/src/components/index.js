@@ -8,6 +8,7 @@ export { default as LoginModal } from './LoginModal.jsx';
 export { default as LoadingScreen } from './LoadingScreen.jsx';
 export { default as Message } from './Message.jsx';
 export { default as ProfileModal } from './ProfileModal.jsx';
+export { default as MarkdownRenderer } from './MarkdownRenderer.jsx';
 
 // New enhanced components
 export { default as Sidebar } from './Sidebar.jsx';

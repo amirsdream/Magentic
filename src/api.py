@@ -233,6 +233,12 @@ async def startup_event():
     meta_system = MetaAgentSystem(config, tools, rag_service=rag_service, tool_manager=tool_manager)
     logger.info("✓ Meta-agent system initialized")
 
+    # Pre-cache MCP tools for all roles to avoid async/sync issues during execution
+    if mcp_client:
+        logger.info("🔧 Pre-caching role tools...")
+        await meta_system.agent_executor.pre_cache_role_tools()
+        logger.info("✓ Role tools pre-cached")
+
     # Initialize executor
     executor = LangGraphExecutor(meta_system)
     logger.info("✓ LangGraph executor ready")
@@ -947,8 +953,71 @@ async def process_query_with_updates(
         if is_cancelled():
             raise asyncio.CancelledError("Execution cancelled before agent execution")
 
+        # Set up TRUE streaming for the final agent (last agent in plan)
+        # This enables real-time token streaming from Claude/OpenAI APIs
+        last_agent_id = None
+        stream_started = {"value": False}
+        
+        if plan.agents:
+            last_agent = plan.agents[-1]
+            last_agent_id = f"{last_agent['role']}_{len(plan.agents)-1}"
+            logger.info(f"🌊 Setting up TRUE streaming for final agent: {last_agent_id}")
+            
+            async def stream_token_callback(token: str):
+                """Send streaming tokens to WebSocket in real-time."""
+                # Send stream_start on first token
+                if not stream_started["value"]:
+                    stream_started["value"] = True
+                    await websocket.send_json({
+                        "type": "stream_start",
+                        "data": {"agent_id": last_agent_id}
+                    })
+                
+                await websocket.send_json({
+                    "type": "stream_token",
+                    "token": token
+                })
+            
+            # Set the callback on meta_system for TRUE streaming
+            meta_system.set_stream_callback(stream_token_callback, last_agent_id)
+
         # Execute with custom callback for progress - pass the SAME plan and cancel_event
         result = await execute_with_progress(websocket, query, plan, cancel_event)
+        
+        # Send stream_end if streaming was active
+        if last_agent_id and stream_started["value"]:
+            await websocket.send_json({
+                "type": "stream_end",
+                "data": {"agent_id": last_agent_id}
+            })
+        
+        # If streaming was NOT active (agent needed tools), stream the final output now
+        # This provides the streaming UX even when real-time streaming wasn't possible
+        final_output = result.get("final_output", "")
+        if last_agent_id and not stream_started["value"] and final_output:
+            logger.info(f"📤 Post-execution streaming for tools-using agent")
+            await websocket.send_json({
+                "type": "stream_start",
+                "data": {"agent_id": last_agent_id}
+            })
+            
+            # Stream the output in chunks for smooth display
+            chunk_size = 20  # Characters per chunk
+            for i in range(0, len(final_output), chunk_size):
+                chunk = final_output[i:i + chunk_size]
+                await websocket.send_json({
+                    "type": "stream_token",
+                    "token": chunk
+                })
+                await asyncio.sleep(0.01)  # Small delay for smooth streaming
+            
+            await websocket.send_json({
+                "type": "stream_end",
+                "data": {"agent_id": last_agent_id}
+            })
+        
+        # Clear the stream callback
+        meta_system.set_stream_callback(None, None)
 
         # Wait to ensure all agent_complete events are sent before the final complete event
         await asyncio.sleep(0.2)
@@ -985,6 +1054,9 @@ async def process_query_with_updates(
                 db.close()
         except Exception as e:
             logger.error(f"Failed to save conversation: {e}")
+
+        # NOTE: TRUE streaming now happens DURING execution via stream_token_callback
+        # No need for fake post-completion streaming anymore
 
         await websocket.send_json(
             {

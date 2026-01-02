@@ -446,6 +446,7 @@ export const useChatStore = create(
       
       // Hydration state - tracks when localStorage state is restored
       _hasHydrated: false,
+      setHasHydrated: (value) => set({ _hasHydrated: value }),
     }),
     {
       name: 'magentic-chat-storage',
@@ -454,15 +455,20 @@ export const useChatStore = create(
         // Only persist the active conversation ID for UX continuity
         activeConversationId: state.activeConversationId,
       }),
-      onRehydrateStorage: () => (state, error) => {
-        // This is called AFTER hydration completes (state is restored from localStorage)
-        if (error) {
-          console.error('[ChatStore] Hydration error:', error);
-        } else {
-          console.log('[ChatStore] Hydration complete, activeConversationId:', state?.activeConversationId);
-        }
-        // Mark hydration complete regardless of error
-        useChatStore.setState({ _hasHydrated: true });
+      onRehydrateStorage: (state) => {
+        // Return a callback that will be called after hydration
+        return (hydratedState, error) => {
+          if (error) {
+            console.error('[ChatStore] Hydration error:', error);
+          } else {
+            console.log('[ChatStore] Hydration complete, activeConversationId:', hydratedState?.activeConversationId);
+          }
+          // Mark hydration complete using the state's own action
+          // Use setTimeout to ensure store is fully initialized
+          setTimeout(() => {
+            useChatStore.getState().setHasHydrated(true);
+          }, 0);
+        };
       },
     }
   )

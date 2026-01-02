@@ -417,7 +417,38 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
       });
       break;
 
+    case WEBSOCKET_EVENTS.STREAM_START:
+      // Start streaming response - preserve all existing state!
+      setCurrentExecution((prev) => ({
+        ...prev,  // IMPORTANT: preserve agents, plan, etc.
+        stage: 'streaming',
+        stageMessage: 'Generating response...',
+        isStreaming: true,
+        streamingContent: '',
+        streamingAgentId: data.data?.agent_id,
+      }));
+      break;
+
+    case WEBSOCKET_EVENTS.STREAM_TOKEN:
+      // Append streaming token to current response
+      setCurrentExecution((prev) => ({
+        ...prev,  // Preserve all state
+        streamingContent: (prev?.streamingContent || '') + data.token,
+      }));
+      break;
+
+    case WEBSOCKET_EVENTS.STREAM_END:
+      // Streaming complete - preserve state, content will be finalized in COMPLETE event
+      setCurrentExecution((prev) => ({
+        ...prev,  // Preserve all state
+        isStreaming: false,
+        stageMessage: 'Finalizing...',
+      }));
+      break;
+
     case WEBSOCKET_EVENTS.COMPLETE:
+      // Mark execution as complete but DON'T clear it or add messages here
+      // That's handled in App.jsx to allow smooth transition with streaming
       // Create a deep copy to preserve execution data
       const executionData = executionRef.current
         ? JSON.parse(JSON.stringify(executionRef.current))
@@ -428,7 +459,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         executionData.token_usage = data.data.token_usage;
       }
 
-      // Mark execution as complete
+      // Mark execution as complete (but keep it visible!)
       if (executionData) {
         executionData.stage = 'complete';
         executionData.output = data.data.output;
@@ -437,7 +468,6 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         executionData.references = data.data.references || [];
         
         // Mark ALL agents as complete when execution finishes
-        // Any running or pending agents should be marked complete
         if (executionData.agents) {
           const endTime = Date.now();
           executionData.agents = executionData.agents.map((agent) => ({
@@ -448,25 +478,11 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
             endTime: agent.endTime || endTime,
           }));
         }
+        
+        // Update execution state - keep visible with streaming content intact
+        setCurrentExecution(executionData);
       }
-
-      // Add the assistant response message immediately (execution stays visible)
-      setMessages((msgs) => [
-        ...msgs,
-        {
-          id: `assistant-${Date.now()}`,
-          type: 'assistant',
-          content: data.data.output,
-          execution: executionData,
-          references: data.data.references || [],
-          artifacts: data.data.artifacts || [],
-          timestamp: new Date(),
-        },
-      ]);
-
-      // Clear execution immediately - message is already added above
-      // No delay needed since message appears in same render cycle
-      setCurrentExecution(null);
+      // NOTE: Message adding is handled in App.jsx on next user message
       break;
 
     case WEBSOCKET_EVENTS.ERROR:

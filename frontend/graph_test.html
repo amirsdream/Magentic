@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Agent Flow Graph - Barrier Pattern Test</title>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #111827;
+      color: white;
+    }
+    h1 { margin-bottom: 10px; color: #a855f7; }
+    .description { color: #9ca3af; margin-bottom: 20px; }
+    .controls {
+      padding: 16px;
+      background: #1f2937;
+      border-radius: 12px;
+      border: 1px solid #374151;
+      margin-bottom: 20px;
+    }
+    .controls h3 { margin: 0 0 12px 0; color: #d1d5db; }
+    .control-row {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    label { color: #9ca3af; font-size: 13px; }
+    input {
+      background: #374151;
+      border: 1px solid #4b5563;
+      color: white;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      width: 60px;
+    }
+    button {
+      background: #a855f7;
+      border: none;
+      color: white;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    button:hover { background: #9333ea; }
+    #graph {
+      width: 100%;
+      height: 500px;
+      border-radius: 12px;
+      background: #1f2937;
+      border: 1px solid #374151;
+    }
+    .legend {
+      margin-top: 16px;
+      padding: 12px;
+      background: #1f2937;
+      border-radius: 8px;
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #9ca3af;
+    }
+    .legend-color {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+    }
+    .legend-barrier {
+      width: 12px;
+      height: 12px;
+      transform: rotate(45deg);
+      border: 2px solid #6b7280;
+      background: #374151;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔗 Agent Flow Graph - Barrier Pattern</h1>
+  <p class="description">Test different layer configurations with barrier synchronization nodes</p>
+
+  <div class="controls">
+    <h3>🎮 Configuration</h3>
+    <div class="control-row">
+      <label>Layer 0: <input type="number" id="layer0" value="2" min="1" max="6"></label>
+      <label>Layer 1: <input type="number" id="layer1" value="4" min="1" max="6"></label>
+      <label>Layer 2: <input type="number" id="layer2" value="1" min="0" max="6"></label>
+      <label>Layer 3: <input type="number" id="layer3" value="0" min="0" max="6"></label>
+      <button onclick="buildGraph()">Build Graph</button>
+    </div>
+  </div>
+
+  <div id="graph"></div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-color" style="background:#3b82f6"></div> Researcher</div>
+    <div class="legend-item"><div class="legend-color" style="background:#eab308"></div> Analyzer</div>
+    <div class="legend-item"><div class="legend-color" style="background:#22c55e"></div> Coder</div>
+    <div class="legend-item"><div class="legend-color" style="background:#a855f7"></div> Writer</div>
+    <div class="legend-item"><div class="legend-color" style="background:#06b6d4"></div> Synthesizer</div>
+    <div class="legend-item"><div class="legend-barrier"></div> Barrier (sync point)</div>
+  </div>
+
+  <script>
+    const options = {
+      nodes: {
+        shape: 'box',
+        font: { color: '#fff', size: 12 },
+        borderWidth: 2,
+        shadow: true,
+        margin: 10,
+      },
+      edges: {
+        arrows: { to: { enabled: true, scaleFactor: 0.8 } },
+        smooth: { type: 'cubicBezier', forceDirection: 'horizontal', roundness: 0.4 },
+        width: 2,
+        shadow: true,
+      },
+      layout: {
+        hierarchical: {
+          direction: 'LR',
+          sortMethod: 'directed',
+          levelSeparation: 180,
+          nodeSpacing: 70,
+        },
+      },
+      physics: false,
+    };
+
+    const roleColors = {
+      researcher: { background: '#3b82f6', border: '#60a5fa' },
+      analyzer: { background: '#eab308', border: '#facc15' },
+      coder: { background: '#22c55e', border: '#4ade80' },
+      writer: { background: '#a855f7', border: '#c084fc' },
+      synthesizer: { background: '#06b6d4', border: '#22d3ee' },
+      barrier: { background: '#374151', border: '#6b7280' },
+    };
+
+    const roles = ['researcher', 'analyzer', 'coder', 'writer', 'synthesizer'];
+
+    function buildGraph() {
+      const layerCounts = [
+        parseInt(document.getElementById('layer0').value),
+        parseInt(document.getElementById('layer1').value),
+        parseInt(document.getElementById('layer2').value),
+        parseInt(document.getElementById('layer3').value),
+      ].filter(c => c > 0);
+
+      const nodes = [];
+      const edges = [];
+      let nodeId = 0;
+      let level = 0;
+
+      layerCounts.forEach((count, layerIdx) => {
+        const layerNodes = [];
+        
+        // Create agent nodes for this layer
+        for (let i = 0; i < count; i++) {
+          const role = roles[(nodeId) % roles.length];
+          const id = `${role}_${nodeId}`;
+          layerNodes.push(id);
+          nodes.push({
+            id,
+            label: `${role}_${nodeId}\n(Layer ${layerIdx})`,
+            level,
+            color: roleColors[role],
+          });
+          nodeId++;
+        }
+
+        // Add barrier after this layer (except last)
+        if (layerIdx < layerCounts.length - 1) {
+          const barrierId = `barrier_${layerIdx}`;
+          nodes.push({
+            id: barrierId,
+            label: `⏸\nL${layerIdx}→L${layerIdx + 1}`,
+            level: level + 1,
+            color: roleColors.barrier,
+            shape: 'diamond',
+            size: 25,
+          });
+
+          // Connect all agents in this layer to barrier
+          layerNodes.forEach(agentId => {
+            edges.push({
+              from: agentId,
+              to: barrierId,
+              color: { color: '#22c55e' },
+            });
+          });
+
+          // Store barrier for next layer connections
+          window[`barrier_${layerIdx}`] = barrierId;
+          level += 2;
+        }
+
+        // Connect from previous barrier to this layer's agents
+        if (layerIdx > 0) {
+          const prevBarrier = window[`barrier_${layerIdx - 1}`];
+          layerNodes.forEach(agentId => {
+            edges.push({
+              from: prevBarrier,
+              to: agentId,
+              color: { color: '#a855f7' },
+            });
+          });
+        }
+      });
+
+      new vis.Network(
+        document.getElementById('graph'),
+        { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) },
+        options
+      );
+    }
+
+    buildGraph();
+  </script>
+</body>
+</html>

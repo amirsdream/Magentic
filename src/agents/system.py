@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Dict, Any, List, Optional, TYPE_CHECKING
+from typing import Dict, Any, List, Optional, TYPE_CHECKING, Callable
 from pathlib import Path
 
 from langchain_core.tools import BaseTool
@@ -77,6 +77,20 @@ class MetaAgentSystem:
         self.absolute_max_depth = config.absolute_max_depth
         self.max_parallel_agents = config.max_parallel_agents
         self._semaphore = asyncio.Semaphore(self.max_parallel_agents)
+        
+        # Streaming callback for final agent response
+        self._stream_callback: Optional[Callable[[str], Any]] = None
+        self._stream_agent_id: Optional[str] = None  # Which agent should stream
+
+    def set_stream_callback(self, callback: Optional[Callable[[str], Any]], agent_id: Optional[str] = None) -> None:
+        """Set callback for streaming final agent response.
+        
+        Args:
+            callback: Async function(token: str) to call for each token
+            agent_id: Optional agent ID that should stream (last agent)
+        """
+        self._stream_callback = callback
+        self._stream_agent_id = agent_id
 
     def set_session(self, session_id: Optional[str]) -> None:
         """Set the current session for conversation history.
@@ -500,21 +514,43 @@ class MetaAgentSystem:
         # Parse context to extract previous outputs
         previous_outputs = self._parse_context(context, agent_id)
 
-        # Execute agent in thread pool with agent_id for token tracking
-        # Note: Agents do NOT receive conversation history - only the coordinator has it
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None,
-            self.agent_executor.execute,
-            role_obj,
-            task,
-            original_query,
-            previous_outputs,
-            0,  # depth
-            3,  # max_depth
-            self.process_query,
-            agent_id,  # Pass agent_id for token tracking
+        # Check if this is the final agent that should stream
+        # BUT only stream if the role doesn't need tools - streaming bypasses tool execution!
+        should_stream = (
+            self._stream_callback is not None and 
+            self._stream_agent_id == agent_id and
+            not role_obj.needs_tools  # Don't stream if agent needs tools
         )
+        
+        if should_stream:
+            # Use async streaming path for final agent (only if no tools needed)
+            logger.info(f"🌊 Using streaming execution for final agent: {agent_id}")
+            result = await self._execute_agent_streaming(
+                role_obj,
+                task,
+                original_query,
+                previous_outputs,
+                agent_id,
+            )
+        else:
+            # Log why not streaming if it was the target agent
+            if self._stream_callback and self._stream_agent_id == agent_id and role_obj.needs_tools:
+                logger.info(f"⚠️ Agent {agent_id} needs tools, using non-streaming execution with full tool support")
+            # Execute agent in thread pool with agent_id for token tracking
+            # Note: Agents do NOT receive conversation history - only the coordinator has it
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                self.agent_executor.execute,
+                role_obj,
+                task,
+                original_query,
+                previous_outputs,
+                0,  # depth
+                3,  # max_depth
+                self.process_query,
+                agent_id,  # Pass agent_id for token tracking
+            )
 
         # Add input_artifacts to result for tracking in UI
         if isinstance(result, dict):
@@ -522,6 +558,110 @@ class MetaAgentSystem:
 
         logger.info(f"✅ {agent_id} ({role}) completed")
         return result
+    
+    async def _execute_agent_streaming(
+        self,
+        role,
+        task: str,
+        original_query: str,
+        previous_outputs: List[str],
+        agent_id: str = "",
+    ) -> Dict[str, Any]:
+        """Execute an agent with streaming output.
+        
+        This is used for the final agent to stream response tokens in real-time.
+        
+        Args:
+            role: Agent role definition.
+            task: Specific task for this agent.
+            original_query: Original user query.
+            previous_outputs: Outputs from previous agents.
+            agent_id: Agent identifier.
+            
+        Returns:
+            Dict with 'content' (agent's text output) and 'tool_calls' (empty for streaming).
+        """
+        from langchain_core.messages import SystemMessage, HumanMessage
+        from langchain_core.runnables import RunnableConfig
+        
+        # Build context
+        context_parts = [f"Original question: {original_query}"]
+        
+        # Add user conversation history if available
+        if self.conversation_history:
+            context_parts.append("\nConversation history (recent):")
+            recent = self.conversation_history[-4:]
+            for msg in recent:
+                role_label = "User" if msg["role"] == "user" else "Assistant"
+                content = (
+                    msg["content"][:150] + "..." if len(msg["content"]) > 150 else msg["content"]
+                )
+                context_parts.append(f"  {role_label}: {content}")
+        
+        if previous_outputs:
+            context_parts.append("\n=== Outputs from Previous Agents ===")
+            for i, output in enumerate(previous_outputs, 1):
+                # Truncate long outputs
+                output_display = (
+                    output[:4000] + "... [truncated]"
+                    if len(output) > 4000
+                    else output
+                )
+                context_parts.append(f"\nAgent {i} output:\n{output_display}")
+        else:
+            context_parts.append("\n=== You are the first agent ===")
+            context_parts.append("No prior agent outputs available yet.")
+        
+        context = "\n".join(context_parts)
+        
+        # Build messages
+        output_limit_instruction = f"\n\nIMPORTANT: Keep your response concise and under 4000 characters. Be direct and focused."
+        system_msg = SystemMessage(content=role.system_prompt + output_limit_instruction)
+        task_msg = HumanMessage(content=f"{context}\n\nYour task: {task}")
+        
+        # Add metadata for Phoenix tracing
+        metadata = {"agent_role": role.name, "agent_task": task, "streaming": True}
+        config: RunnableConfig = {
+            "run_name": f"{role.name}_agent_streaming",
+            "metadata": metadata,
+            "tags": [role.name, "meta_agent", "streaming"],
+        }
+        
+        messages = [system_msg, task_msg]
+        
+        # Stream from LLM
+        logger.info(f"🌊 Streaming response for final agent: {agent_id}")
+        content_parts = []
+        try:
+            async for chunk in self.llm.astream(messages, config=config):
+                if hasattr(chunk, 'content') and chunk.content:
+                    token = chunk.content
+                    # Ensure token is a string
+                    if isinstance(token, list):
+                        token = ''.join(str(t) if isinstance(t, str) else '' for t in token)
+                    token = str(token)
+                    content_parts.append(token)
+                    # Call the callback with each token
+                    if self._stream_callback:
+                        await self._stream_callback(token)
+            
+            full_content = ''.join(content_parts)
+            logger.info(f"✅ Streamed {len(full_content)} chars for {agent_id}")
+            
+            return {
+                "content": full_content,
+                "tool_calls": [],  # Tools not supported in streaming mode
+                "artifacts": [],
+            }
+        except Exception as e:
+            logger.error(f"Streaming error for {agent_id}: {e}")
+            # Fallback to non-streaming
+            response = self.llm.invoke(messages, config=config)
+            return {
+                "content": str(response.content),
+                "tool_calls": [],
+                "artifacts": [],
+            }
 
     def _parse_context(self, context: str, agent_id: str) -> List[str]:
         """Parse context string to extract previous outputs."""

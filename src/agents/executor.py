@@ -658,7 +658,18 @@ class AgentExecutor:
             "\n1. Read the file using mcp_filesystem_read_file tool before using its content"
             "\n2. If you create files, use mcp_filesystem_write_file with clear descriptive names"
         )
-        system_msg = SystemMessage(content=role.system_prompt + output_limit_instruction + citation_instruction + artifact_instruction)
+        # Add tool usage instruction for tool-enabled agents
+        tool_instruction = ""
+        if role.needs_tools:
+            tool_instruction = (
+                "\n\nIMPORTANT: You have access to tools. You MUST use the appropriate tools to complete your task:"
+                "\n- For web research: use search tools (mcp_websearch_search, duckduckgo_search)"
+                "\n- For reading files: use mcp_filesystem_read_file"
+                "\n- For writing files: use mcp_filesystem_write_file"
+                "\n- For Python code execution: use mcp_python_exec_execute"
+                "\nDo NOT just generate text answers - use tools to gather real information first!"
+            )
+        system_msg = SystemMessage(content=role.system_prompt + output_limit_instruction + citation_instruction + artifact_instruction + tool_instruction)
         task_msg = HumanMessage(content=f"{context}\n\nYour task: {task}")
 
         logger.info(f"Task message content (first 500 chars): {task_msg.content[:500]}...")
@@ -750,18 +761,35 @@ IMPORTANT: If completing directly, keep your response under {self.ui_display_lim
 
         if not role_tools:
             logger.error(f"⚠️ {role.name} needs tools but no tools are available!")
+            self._emit_log('warning', f"Agent {role.name} has no tools available", {'agent_id': agent_id})
             response = self._invoke_llm([system_msg, task_msg], config)
             self._track_tokens(response, agent_id, role.name)  # Track token usage
             return {"content": str(response.content), "tool_calls": [], "references": []}
 
-        logger.info(f"🔧 {role.name} has access to {len(role_tools)} tools")
+        tool_names = [t.name for t in role_tools]
+        logger.info(f"🔧 {role.name} has access to {len(role_tools)} tools: {tool_names[:10]}...")
+        self._emit_log('info', f"Agent {role.name} has {len(role_tools)} tools", {
+            'agent_id': agent_id,
+            'tool_count': len(role_tools),
+            'tools': tool_names[:10]
+        })
+        
+        # Enhance system message with actual tool names
+        tool_list = ", ".join(tool_names[:15])  # List up to 15 tools
+        tool_instruction = (
+            f"\n\n=== AVAILABLE TOOLS ===\n"
+            f"You have access to these tools: {tool_list}\n"
+            f"You MUST use these tools to complete your task. DO NOT just provide a text answer without using tools first.\n"
+            f"Call tools directly using the tool call format. After getting tool results, synthesize them into your final answer."
+        )
+        enhanced_system_msg = SystemMessage(content=str(system_msg.content) + tool_instruction)
 
         # Special handling for researcher role
         if role.name == "researcher":
-            return self._execute_researcher(role, system_msg, task_msg, config, role_tools, agent_id)
+            return self._execute_researcher(role, enhanced_system_msg, task_msg, config, role_tools, agent_id)
 
         # Standard tool calling for other roles
-        return self._execute_standard_tool_calling(role, system_msg, task_msg, config, role_tools, agent_id)
+        return self._execute_standard_tool_calling(role, enhanced_system_msg, task_msg, config, role_tools, agent_id)
 
     def _execute_researcher(
         self,
@@ -877,17 +905,44 @@ IMPORTANT: Keep search queries short and focused."""
             start_time = time.time()
             try:
                 logger.info(f"   └─ Searching: {query}")
+                # Emit tool_start log
+                self._emit_log('tool_start', f"Calling tool: {search_tool.name}", {
+                    'tool_name': search_tool.name,
+                    'args': json.dumps({"query": query}),
+                    'preview': f"query: {query[:50]}..."
+                })
+                
                 result = search_tool.invoke({"query": query})
                 duration = time.time() - start_time
                 success = result is not None
                 self._record_tool_call(search_tool.name, duration, success)
+                
                 if result:
                     results.append(result)
+                    result_preview = str(result)[:100] + "..." if len(str(result)) > 100 else str(result)
                     logger.info(f"🔍 SEARCH RESULT for '{query}': {result[:200]}...")
+                    # Emit tool_end log
+                    self._emit_log('tool_end', f"Tool {search_tool.name} completed ({duration:.1f}s)", {
+                        'tool_name': search_tool.name,
+                        'result': str(result),
+                        'preview': result_preview,
+                        'duration': duration
+                    })
+                else:
+                    self._emit_log('tool_end', f"Tool {search_tool.name} returned no results ({duration:.1f}s)", {
+                        'tool_name': search_tool.name,
+                        'result': 'No results',
+                        'duration': duration
+                    })
             except Exception as e:
                 duration = time.time() - start_time
                 self._record_tool_call(search_tool.name, duration, False, type(e).__name__)
                 logger.error(f"   └─ Search error for '{query}': {e}")
+                self._emit_log('error', f"Tool {search_tool.name} failed: {str(e)}", {
+                    'tool_name': search_tool.name,
+                    'error': str(e),
+                    'duration': duration
+                })
                 results.append(f"Search failed for '{query}': {e}")
         return results
 
@@ -914,6 +969,20 @@ IMPORTANT: Keep search queries short and focused."""
         max_iterations = max_tool_iterations or self.max_tool_iterations
         max_total_calls = self.max_tool_calls_per_agent
         
+        # Log tool schemas for debugging
+        for i, t in enumerate(role_tools[:3]):
+            try:
+                schema: dict = {}
+                if hasattr(t, 'args_schema') and t.args_schema:
+                    args_schema = t.args_schema
+                    if hasattr(args_schema, 'model_json_schema'):
+                        schema = args_schema.model_json_schema()  # type: ignore[union-attr]
+                    elif hasattr(args_schema, 'schema'):
+                        schema = args_schema.schema()  # type: ignore[union-attr]
+                logger.info(f"🔧 Tool {i+1}: name={t.name}, description={t.description[:50]}..., schema={schema}")
+            except Exception as e:
+                logger.warning(f"🔧 Tool {i+1}: name={t.name}, could not get schema: {e}")
+        
         llm_with_tools = self.llm.bind_tools(role_tools)
         logger.info(
             f"🔧 {role.name} bound with {len(role_tools)} tools: {[t.name for t in role_tools[:5]]}..."
@@ -934,6 +1003,20 @@ IMPORTANT: Keep search queries short and focused."""
         for iteration in range(max_iterations):
             response = self._invoke_llm(messages, config, llm=llm_with_tools)
             self._track_tokens(response, agent_id, role.name)
+
+            # Log full response details for debugging
+            logger.info(f"🔍 {role.name} iteration {iteration + 1}: response type={type(response).__name__}")
+            logger.info(f"🔍 {role.name} response content (first 200 chars): {str(response.content)[:200]}")
+            
+            # Log whether response has tool_calls attribute and its value
+            has_tool_calls_attr = hasattr(response, "tool_calls")
+            tool_calls_value = getattr(response, "tool_calls", None) if has_tool_calls_attr else None
+            
+            # Also check additional_kwargs for tool_calls (some LLMs put them there)
+            additional_kwargs = getattr(response, "additional_kwargs", {})
+            tool_calls_in_kwargs = additional_kwargs.get("tool_calls", [])
+            
+            logger.info(f"🔍 {role.name} iteration {iteration + 1}: has_tool_calls={has_tool_calls_attr}, tool_calls={tool_calls_value}, tool_calls_in_kwargs={tool_calls_in_kwargs}")
 
             # Check if agent wants to call tools
             if hasattr(response, "tool_calls") and response.tool_calls:
