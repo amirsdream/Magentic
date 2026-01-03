@@ -50,7 +50,8 @@ const WorkflowPanelInner = memo(function WorkflowPanelInner({
   onClose, 
   onRetry,
   isPanel = false,
-  isLive = false 
+  isLive = false,
+  showHistoryAfterComplete = false
 }) {
   const { getRole } = useRolesContext();
   const [expandedAgents, setExpandedAgents] = useState(new Set());
@@ -58,6 +59,19 @@ const WorkflowPanelInner = memo(function WorkflowPanelInner({
   const [viewMode, setViewMode] = useState('dag');
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [wasLive, setWasLive] = useState(false);
+
+  // Track when execution was live and then completed - show history
+  useEffect(() => {
+    if (isLive) {
+      setWasLive(true);
+      setShowHistory(false); // Show DAG while running
+    } else if (wasLive && showHistoryAfterComplete && executionHistory.length > 0) {
+      // Execution just finished, show history
+      setShowHistory(true);
+      setWasLive(false);
+    }
+  }, [isLive, wasLive, showHistoryAfterComplete, executionHistory.length]);
 
   const toggleAgent = useCallback((agentId) => {
     setExpandedAgents(prev => {

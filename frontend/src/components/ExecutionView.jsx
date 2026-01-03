@@ -134,7 +134,8 @@ function ExecutionView({
   const costFormatted = tokenUsage?.total?.cost_formatted || '$0.00';
 
   // Check if we have workflow data (plan/agents) - historical messages might only have output
-  const hasWorkflowData = execution?.plan || execution?.agents?.length > 0;
+  // Also show during initializing stage so user sees the DAG panel immediately
+  const hasWorkflowData = execution?.plan || execution?.agents?.length > 0 || execution?.stage === 'initializing' || execution?.isLoading;
 
   // No execution data at all
   if (!execution) {

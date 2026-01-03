@@ -157,7 +157,7 @@ function App() {
           sidebarOpen={sidebarOpen}
           onToggleWorkflow={toggleAgentFlow}
           showWorkflow={showAgentFlow}
-          hasActiveExecution={!!currentExecution}
+          hasActiveExecution={!!currentExecution && currentExecution.stage !== 'complete' && currentExecution.stage !== 'stopped'}
         />
 
         <div className="flex-1 flex overflow-hidden">
@@ -203,7 +203,8 @@ function App() {
                   onSelectExecution={setViewingExecution}
                   onClose={toggleAgentFlow}
                   isPanel={true}
-                  isLive={!!currentExecution}
+                  isLive={!!currentExecution && currentExecution.stage !== 'complete' && currentExecution.stage !== 'stopped'}
+                  showHistoryAfterComplete={true}
                 />
               </motion.div>
             )}
