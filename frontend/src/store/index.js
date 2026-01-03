@@ -24,21 +24,18 @@ export const useChatStore = create(
       // Load chats from backend
       loadChats: async (username) => {
         if (!username) return;
-        console.log('[ChatStore] loadChats called for:', username);
         
         // Wait for hydration to complete (so activeConversationId is loaded from localStorage)
         // Use a promise that resolves when _hasHydrated becomes true
         const waitForHydration = async () => {
           // Check if already hydrated
           if (useChatStore.getState()._hasHydrated) {
-            console.log('[ChatStore] Already hydrated');
             return;
           }
           
           // Wait for hydration with timeout
           return new Promise((resolve) => {
             const timeout = setTimeout(() => {
-              console.log('[ChatStore] Hydration timeout, proceeding anyway');
               resolve();
             }, 500); // 500ms timeout
             
@@ -46,7 +43,6 @@ export const useChatStore = create(
               if (state._hasHydrated) {
                 clearTimeout(timeout);
                 unsubscribe();
-                console.log('[ChatStore] Hydration detected via subscription');
                 resolve();
               }
             });
@@ -58,14 +54,11 @@ export const useChatStore = create(
         set({ isLoading: true });
         try {
           const response = await fetch(`${API_URL}/chats/${username}`);
-          console.log('[ChatStore] loadChats response status:', response.status);
           if (response.ok) {
             const data = await response.json();
-            console.log('[ChatStore] loadChats data:', data);
             
             // Get activeConversationId after hydration
             const { activeConversationId } = useChatStore.getState();
-            console.log('[ChatStore] Hydrated activeConversationId:', activeConversationId);
             
             const loadedConversations = data.chats.map(chat => ({
               id: chat.id,
@@ -79,7 +72,6 @@ export const useChatStore = create(
             
             // Check if saved activeConversationId exists in loaded chats
             const activeExists = activeConversationId && loadedConversations.some(c => c.id === activeConversationId);
-            console.log('[ChatStore] activeExists in loaded chats:', activeExists);
             
             // Determine which conversation to select:
             // 1. Persisted ID if it exists in chats
@@ -88,8 +80,6 @@ export const useChatStore = create(
             const selectedId = activeExists 
               ? activeConversationId 
               : (loadedConversations[0]?.id || null);
-            
-            console.log('[ChatStore] Selected conversation:', selectedId);
             
             set({
               conversations: loadedConversations,
@@ -110,13 +100,6 @@ export const useChatStore = create(
           const response = await fetch(`${API_URL}/chats/${username}/${sessionId}`);
           if (response.ok) {
             const data = await response.json();
-            console.log('[loadChatMessages] Loaded messages:', data.messages?.length, 'for session:', sessionId);
-            // Debug: check if any messages have artifacts
-            data.messages?.forEach((msg, i) => {
-              if (msg.executionData?.artifacts?.length > 0) {
-                console.log(`[loadChatMessages] Message ${i} has ${msg.executionData.artifacts.length} artifacts`);
-              }
-            });
             set((state) => ({
               conversations: state.conversations.map(conv =>
                 conv.id === sessionId
@@ -306,11 +289,8 @@ export const useChatStore = create(
         // Always get fresh state
         const { activeConversationId, conversations } = get();
         
-        console.log('[addMessage] activeConversationId:', activeConversationId, 'username:', username);
-        
         // If no active conversation, skip (shouldn't happen if createConversation was called)
         if (!activeConversationId) {
-          console.warn('addMessage called with no activeConversationId');
           return;
         }
         
@@ -359,9 +339,7 @@ export const useChatStore = create(
         }));
         
         // Sync with backend if conversation is synced (has chat_ prefix)
-        console.log('[addMessage] Checking sync:', { username, activeConversationId, startsWithChat: activeConversationId?.startsWith('chat_') });
         if (username && activeConversationId.startsWith('chat_')) {
-          console.log('[addMessage] Syncing to backend...', { hasArtifacts: (executionDataForBackend?.artifacts?.length || 0) > 0 });
           try {
             const response = await fetch(`${API_URL}/chats/${activeConversationId}/messages`, {
               method: 'POST',
@@ -372,10 +350,8 @@ export const useChatStore = create(
                 execution_data: executionDataForBackend,
               }),
             });
-            console.log('[addMessage] Response status:', response.status);
             if (response.ok) {
               const data = await response.json();
-              console.log('[addMessage] Response data:', data);
               // Update title if changed by backend
               if (data.chatTitle && data.chatTitle !== 'New Chat') {
                 set((state) => ({
@@ -458,11 +434,6 @@ export const useChatStore = create(
       onRehydrateStorage: (state) => {
         // Return a callback that will be called after hydration
         return (hydratedState, error) => {
-          if (error) {
-            console.error('[ChatStore] Hydration error:', error);
-          } else {
-            console.log('[ChatStore] Hydration complete, activeConversationId:', hydratedState?.activeConversationId);
-          }
           // Mark hydration complete using the state's own action
           // Use setTimeout to ensure store is fully initialized
           setTimeout(() => {

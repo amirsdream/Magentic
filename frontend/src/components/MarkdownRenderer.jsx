@@ -17,8 +17,9 @@ import css from 'react-syntax-highlighter/dist/esm/languages/prism/css';
 import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
 import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown';
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, Globe, BookOpen, ExternalLink } from 'lucide-react';
 import clsx from 'clsx';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // Register languages
 SyntaxHighlighter.registerLanguage('javascript', javascript);
@@ -96,8 +97,116 @@ const InlineCode = ({ children, ...props }) => {
   );
 };
 
-const MarkdownRenderer = ({ content, className = '' }) => {
+// Citation tooltip component for inline references
+const CitationTooltip = ({ index, reference }) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const isWeb = reference?.type === 'web' || reference?.url;
+  const Icon = isWeb ? Globe : BookOpen;
+  
+  const handleClick = (e) => {
+    e.preventDefault();
+    if (reference?.url) {
+      window.open(reference.url, '_blank', 'noopener,noreferrer');
+    }
+  };
+  
+  if (!reference) {
+    return <sup className="text-xs text-slate-400">[{index}]</sup>;
+  }
+  
+  return (
+    <span className="relative inline-block">
+      <sup
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        onClick={handleClick}
+        className={`inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-[10px] font-semibold rounded cursor-pointer transition-all duration-200 ${
+          isWeb 
+            ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-500/30' 
+            : 'bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-500/30'
+        }`}
+      >
+        {index}
+      </sup>
+      
+      {/* Tooltip */}
+      <AnimatePresence>
+        {isHovered && (
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.95 }}
+            transition={{ duration: 0.15 }}
+            className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2.5 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-slate-200 dark:border-gray-700"
+            style={{ pointerEvents: 'none' }}
+          >
+            {/* Arrow */}
+            <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-white dark:bg-gray-800 border-r border-b border-slate-200 dark:border-gray-700" />
+            
+            <div className="relative">
+              <div className="flex items-start gap-2">
+                <Icon className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${isWeb ? 'text-blue-500' : 'text-amber-500'}`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-slate-800 dark:text-gray-200 line-clamp-2">
+                    {reference.title || reference.source || 'Unknown source'}
+                  </p>
+                  {reference.snippet && (
+                    <p className="text-[10px] text-slate-500 dark:text-gray-400 mt-1 line-clamp-2">
+                      {reference.snippet}
+                    </p>
+                  )}
+                  {reference.url && (
+                    <p className="text-[10px] text-blue-500 dark:text-blue-400 mt-1 truncate flex items-center gap-1">
+                      <ExternalLink className="w-2.5 h-2.5" />
+                      {(() => { try { return new URL(reference.url).hostname; } catch { return reference.url; } })()}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </span>
+  );
+};
+
+// Process text to convert citation markers [1], [2] to interactive tooltips
+const processTextWithCitations = (text, references) => {
+  if (!text || !references?.length) return text;
+  
+  // Match [1], [2], etc. - citation markers
+  const parts = text.split(/(\[\d+\])/g);
+  
+  return parts.map((part, i) => {
+    const match = part.match(/^\[(\d+)\]$/);
+    if (match) {
+      const index = parseInt(match[1], 10);
+      const reference = references[index - 1]; // 1-indexed to 0-indexed
+      return <CitationTooltip key={i} index={index} reference={reference} />;
+    }
+    return part;
+  });
+};
+
+const MarkdownRenderer = ({ content, className = '', references = [] }) => {
   if (!content) return null;
+  
+  // Custom text renderer that processes citations
+  const TextWithCitations = ({ children }) => {
+    if (typeof children === 'string') {
+      return <>{processTextWithCitations(children, references)}</>;
+    }
+    if (Array.isArray(children)) {
+      return <>{children.map((child, i) => {
+        if (typeof child === 'string') {
+          return <React.Fragment key={i}>{processTextWithCitations(child, references)}</React.Fragment>;
+        }
+        return child;
+      })}</>;
+    }
+    return children;
+  };
   
   return (
     <div className={clsx(
@@ -134,6 +243,22 @@ const MarkdownRenderer = ({ content, className = '' }) => {
           // Override pre to prevent double wrapping
           pre({ children }) {
             return <>{children}</>;
+          },
+          // Process citations in text elements
+          p({ children }) {
+            return <p><TextWithCitations>{children}</TextWithCitations></p>;
+          },
+          li({ children }) {
+            return <li><TextWithCitations>{children}</TextWithCitations></li>;
+          },
+          td({ children }) {
+            return <td><TextWithCitations>{children}</TextWithCitations></td>;
+          },
+          strong({ children }) {
+            return <strong><TextWithCitations>{children}</TextWithCitations></strong>;
+          },
+          em({ children }) {
+            return <em><TextWithCitations>{children}</TextWithCitations></em>;
           },
         }}
       >

@@ -917,6 +917,7 @@ async def process_query_with_updates(
         })
 
         # Send updated plan with all agents (coordinator + execution agents)
+        # Mark layer 1 agents as 'running' since they start immediately after coordinator
         all_agents_data = [
             {
                 "agent_id": coordinator_agent_id,
@@ -927,7 +928,8 @@ async def process_query_with_updates(
             }
         ] + [{
             **agent,
-            "status": "pending",  # New agents start as pending
+            # Layer 1 agents start immediately, others are pending
+            "status": "running" if agent.get("layer") == 1 else "pending",
         } for agent in agents_data]
 
         await websocket.send_json({

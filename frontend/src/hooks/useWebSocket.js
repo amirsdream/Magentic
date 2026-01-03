@@ -10,6 +10,12 @@ export function useWebSocket(user, isAuthenticated, onMessageReceived) {
   const [isConnected, setIsConnected] = useState(false);
   const reconnectTimeoutRef = useRef(null);
   const wsRef = useRef(null);
+  
+  // Use ref for callback to avoid reconnecting when callback changes
+  const onMessageReceivedRef = useRef(onMessageReceived);
+  useEffect(() => {
+    onMessageReceivedRef.current = onMessageReceived;
+  }, [onMessageReceived]);
 
   const connect = useCallback(() => {
     if (!user || !isAuthenticated) return;
@@ -24,12 +30,10 @@ export function useWebSocket(user, isAuthenticated, onMessageReceived) {
     );
 
     websocket.onopen = () => {
-      console.log('WebSocket connected');
       setIsConnected(true);
     };
 
     websocket.onclose = () => {
-      console.log('WebSocket disconnected');
       setIsConnected(false);
       // Reconnect after delay
       reconnectTimeoutRef.current = setTimeout(connect, RECONNECT_DELAY);
@@ -41,12 +45,13 @@ export function useWebSocket(user, isAuthenticated, onMessageReceived) {
 
     websocket.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      onMessageReceived(data);
+      // Use ref to always call latest callback without reconnecting
+      onMessageReceivedRef.current(data);
     };
 
     wsRef.current = websocket;
     setWs(websocket);
-  }, [user, isAuthenticated, onMessageReceived]);
+  }, [user, isAuthenticated]);
 
   // Connect when authenticated
   useEffect(() => {
@@ -83,7 +88,6 @@ export function useWebSocket(user, isAuthenticated, onMessageReceived) {
  * Process incoming WebSocket messages
  */
 export function processWebSocketMessage(data, setCurrentExecution, setMessages, executionRef) {
-  console.log('Received:', data);
 
   switch (data.type) {
     case WEBSOCKET_EVENTS.STATUS:
@@ -124,10 +128,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
       break;
 
     case WEBSOCKET_EVENTS.PLAN:
-      console.log('📋 PLAN received with agents:', data.data.agents?.map(a => ({ id: a.agent_id, status: a.status })));
       setCurrentExecution((prev) => {
-        console.log('📋 PLAN handler - prev.agents:', prev?.agents?.map(a => ({ id: a.agent_id, status: a.status })));
-        
         // Create a map of existing agent states to preserve
         const existingAgentStates = new Map();
         if (prev?.agents && Array.isArray(prev.agents)) {
@@ -157,7 +158,6 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
             const preservedStatus = (existing.status === AGENT_STATUS.RUNNING || existing.status === AGENT_STATUS.COMPLETE)
               ? existing.status 
               : normalizeStatus(agent.status);
-            console.log(`📋 MERGE: ${agent.agent_id} existing=${existing.status} plan=${agent.status} → ${preservedStatus}`);
             mergedAgents.push({
               ...existing,  // Start with ALL existing data
               // Only update non-state metadata from plan
@@ -167,15 +167,24 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
               status: preservedStatus,
             });
           } else {
-            // New agent from plan - set startTime for coordinator (layer 0) from execution start
+            // New agent from plan
+            const normalizedStatus = normalizeStatus(agent.status);
             const isCoordinator = (agent.layer ?? 0) === 0;
-            const agentStartTime = isCoordinator && prev?.startedAt 
-              ? new Date(prev.startedAt).getTime() 
-              : null; // Other agents get startTime when they actually start via agent_start
-            console.log(`📋 NEW: ${agent.agent_id} status=${normalizeStatus(agent.status)} startTime=${agentStartTime}`);
+            
+            // Set startTime based on status and layer
+            let agentStartTime = null;
+            if (isCoordinator && prev?.startedAt) {
+              // Coordinator uses execution start time
+              agentStartTime = new Date(prev.startedAt).getTime();
+            } else if (normalizedStatus === AGENT_STATUS.RUNNING) {
+              // If agent is already running (from backend), set startTime now
+              agentStartTime = Date.now();
+            }
+            // Otherwise leave null - will be set by agent_start event
+            
             mergedAgents.push({
               ...agent,
-              status: normalizeStatus(agent.status),
+              status: normalizedStatus,
               logs: agent.logs || [],
               startTime: agentStartTime,
             });
@@ -185,12 +194,9 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         // Also keep any agents that were in prev but NOT in new plan (edge case)
         for (const [agentId, agent] of existingAgentStates) {
           if (!newPlanAgentIds.has(agentId)) {
-            console.log(`📋 KEEP orphan: ${agentId} status=${agent.status}`);
             mergedAgents.push(agent);
           }
         }
-        
-        console.log('📋 RESULT:', mergedAgents.map(a => ({ id: a.agent_id, status: a.status })));
         
         return {
           ...prev,
@@ -203,7 +209,6 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
       break;
 
     case WEBSOCKET_EVENTS.AGENT_START:
-      console.log('🚀 Agent start received:', data.data.agent_id);
       setCurrentExecution((prev) => {
         // Use execution startedAt for coordinator (layer 0), Date.now() for other agents
         const isCoordinator = (data.data.layer ?? 0) === 0;
@@ -213,7 +218,6 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         
         // If no agents yet (null or empty), create the agent on-the-fly
         if (!prev?.agents || !Array.isArray(prev.agents) || prev.agents.length === 0) {
-          console.log('🚀 Creating agent on-the-fly for agent_start:', data.data.agent_id);
           return {
             ...prev,
             agents: [{
@@ -230,12 +234,9 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         }
 
         const agentIds = prev.agents.map(a => a.agent_id);
-        console.log('🚀 Looking for agent_id:', data.data.agent_id, 'in:', agentIds);
-        
         const found = agentIds.includes(data.data.agent_id);
         if (!found) {
           // Agent not in list - add it
-          console.log('🚀 Agent not found, adding:', data.data.agent_id);
           return {
             ...prev,
             agents: [...prev.agents, {
@@ -262,8 +263,6 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
               }
             : agent
         );
-        
-        console.log('🚀 Updated agents after start:', updatedAgents.map(a => ({ id: a.agent_id, status: a.status })));
 
         return {
           ...prev,
@@ -273,13 +272,9 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
       break;
 
     case WEBSOCKET_EVENTS.AGENT_COMPLETE:
-      console.log('✅ AGENT_COMPLETE received:', data.data.agent_id);
       setCurrentExecution((prev) => {
-        console.log('✅ AGENT_COMPLETE handler - prev.agents:', prev?.agents?.map(a => ({ id: a.agent_id, status: a.status })));
-        
         // If no agents yet, create the agent on-the-fly as completed
         if (!prev?.agents || !Array.isArray(prev.agents) || prev.agents.length === 0) {
-          console.log('✅ Creating agent on-the-fly for agent_complete:', data.data.agent_id);
           return {
             ...prev,
             agents: [{
@@ -306,7 +301,6 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         
         if (!found) {
           // Add agent as completed
-          console.log('✅ Agent not found, adding as completed:', data.data.agent_id);
           return {
             ...prev,
             agents: [...prev.agents, {
@@ -329,16 +323,13 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         }
 
         // Update existing agent
-        console.log('✅ Marking agent complete:', data.data.agent_id);
         const updatedAgents = prev.agents.map((agent) => {
           if (agent.agent_id === data.data.agent_id) {
             // Calculate startTime - preserve existing, or use execution start for coordinator
             const isCoordinator = (agent.layer ?? 0) === 0;
             const preservedStartTime = agent.startTime || 
               (isCoordinator && prev?.startedAt ? new Date(prev.startedAt).getTime() : Date.now());
-            
-            console.log(`✅ Agent ${agent.agent_id} startTime=${preservedStartTime} endTime=${Date.now()}`);
-            
+
             return {
               ...agent,  // Preserve logs and other state
               status: AGENT_STATUS.COMPLETE,
@@ -354,8 +345,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
           }
           return agent;
         });
-        
-        console.log('✅ RESULT:', updatedAgents.map(a => ({ id: a.agent_id, status: a.status, startTime: a.startTime })));
+
         return {
           ...prev,
           agents: updatedAgents,
@@ -523,7 +513,6 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
       // Update current execution to stopped state (smooth transition, no remount)
       setCurrentExecution((prev) => {
         if (!prev) {
-          console.log('Stop acknowledged - no active execution');
           return null;
         }
         

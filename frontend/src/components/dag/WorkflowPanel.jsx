@@ -2,7 +2,7 @@
  * WorkflowPanel - Main workflow visualization panel
  * Refactored from WorkflowVisualization.jsx into smaller, maintainable components
  */
-import React, { useState, useEffect, useMemo, useCallback, createContext, useContext } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, createContext, useContext, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle,
@@ -42,8 +42,8 @@ export const useRolesContext = () => {
   return context;
 };
 
-// Inner component
-function WorkflowPanelInner({ 
+// Inner component - memoized to prevent unnecessary re-renders
+const WorkflowPanelInner = memo(function WorkflowPanelInner({ 
   execution, 
   executionHistory = [], 
   onSelectExecution,
@@ -313,7 +313,7 @@ function WorkflowPanelInner({
       </motion.div>
     </motion.div>
   );
-}
+});
 
 // Wrapper with roles context
 export function WorkflowPanel(props) {

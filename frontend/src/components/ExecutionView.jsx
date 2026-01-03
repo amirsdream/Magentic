@@ -1,13 +1,97 @@
 /**
- * ExecutionView - Unified component for showing execution progress and completion
- * Adapts its appearance based on whether execution is live, completed, or stopped
- * Shows a compact inline view - for full workflow visualization, use the side panel
+ * ExecutionView - Unified component for showing execution progress, workflow, and response
+ * Handles: workflow visualization, streaming response, and final output
  */
 
 import React, { useState } from 'react';
-import { CheckCircle, Sparkles, Brain, Zap, ChevronDown, ChevronUp, Coins, DollarSign, StopCircle } from 'lucide-react';
+import { CheckCircle, Sparkles, Brain, Zap, ChevronUp, ChevronDown, Coins, DollarSign, StopCircle, FileCode, FileText, FileImage, File, Globe, BookOpen, ExternalLink } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import WorkflowVisualization from './WorkflowVisualization';
+import MarkdownRenderer from './MarkdownRenderer';
+
+// Inline reference badge with tooltip
+const ReferenceTooltip = ({ reference, index, isWeb }) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const Icon = isWeb ? Globe : BookOpen;
+  
+  const handleClick = () => {
+    if (reference.url) {
+      window.open(reference.url, '_blank', 'noopener,noreferrer');
+    }
+  };
+  
+  return (
+    <div className="relative inline-block">
+      <button
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        onClick={handleClick}
+        className={`inline-flex items-center justify-center min-w-[22px] h-5 px-1 text-[10px] font-semibold rounded transition-all duration-200 ${
+          isWeb 
+            ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-500/30' 
+            : 'bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-500/30'
+        } ${reference.url ? 'cursor-pointer' : 'cursor-default'}`}
+      >
+        [{index}]
+      </button>
+      
+      {/* Tooltip */}
+      <AnimatePresence>
+        {isHovered && (
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.95 }}
+            transition={{ duration: 0.15 }}
+            className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2.5 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-slate-200 dark:border-gray-700"
+            style={{ pointerEvents: 'none' }}
+          >
+            {/* Arrow */}
+            <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-white dark:bg-gray-800 border-r border-b border-slate-200 dark:border-gray-700" />
+            
+            <div className="relative">
+              <div className="flex items-start gap-2">
+                <Icon className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${isWeb ? 'text-blue-500' : 'text-amber-500'}`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-slate-800 dark:text-gray-200 line-clamp-2">
+                    {reference.title || reference.source || 'Unknown source'}
+                  </p>
+                  {reference.snippet && (
+                    <p className="text-[10px] text-slate-500 dark:text-gray-400 mt-1 line-clamp-2">
+                      {reference.snippet}
+                    </p>
+                  )}
+                  {reference.url && (
+                    <p className="text-[10px] text-blue-500 dark:text-blue-400 mt-1 truncate">
+                      {new URL(reference.url).hostname}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+// Get icon for artifact based on type/extension
+const getArtifactIcon = (artifact) => {
+  const ext = artifact.path?.split('.').pop()?.toLowerCase() || '';
+  const type = artifact.type?.toLowerCase() || '';
+  
+  if (['js', 'jsx', 'ts', 'tsx', 'py', 'java', 'cpp', 'c', 'go', 'rs', 'rb', 'php', 'html', 'css', 'json', 'xml', 'yaml', 'yml', 'sh', 'bash', 'sql'].includes(ext) || type === 'code') {
+    return FileCode;
+  }
+  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'].includes(ext) || type === 'image') {
+    return FileImage;
+  }
+  if (['md', 'txt', 'doc', 'docx', 'pdf'].includes(ext) || type === 'document' || type === 'text') {
+    return FileText;
+  }
+  return File;
+};
 
 function ExecutionView({ 
   execution, 
@@ -15,7 +99,9 @@ function ExecutionView({
   defaultExpanded = null, // null means auto-detect
   showAvatar = null, // null means auto-detect
   messageId = 'current',
-  onRetry = null // callback to retry execution with same query
+  onRetry = null, // callback to retry execution with same query
+  onPreviewArtifact = null, // callback to open artifact preview panel
+  showDetails = true, // controlled by header toggle - true = show workflow, false = message only
 }) {
   // Determine execution state
   const isStopped = execution?.stage === 'stopped';
@@ -33,7 +119,7 @@ function ExecutionView({
   const isSummary = variant === 'summary' || variant === 'compact' || (variant === 'auto' && (isComplete || isStopped));
   const isCompact = variant === 'compact';
   
-  // Default expansion: always expanded (user preference)
+  // Local state for expanding/collapsing workflow within the details view
   const [showFlow, setShowFlow] = useState(
     defaultExpanded !== null ? defaultExpanded : true
   );
@@ -55,6 +141,9 @@ function ExecutionView({
   const totalAgents = execution?.plan?.total_agents || agentCount;
   const runningAgents = execution?.agents?.filter(a => a.status === 'running').length || 0;
   const totalLayers = execution?.plan?.total_layers || 1;
+
+  // Check if we have workflow data (plan/agents) - historical messages might only have output
+  const hasWorkflowData = execution?.plan || execution?.agents?.length > 0;
 
   // No execution data at all
   if (!execution) {
@@ -89,13 +178,21 @@ function ExecutionView({
           hoverBg: 'hover:bg-slate-50/50 dark:hover:bg-gray-700/30'
         };
 
+  // Check if we have response content
+  const hasResponse = execution?.streamingContent || execution?.output;
+  const hasArtifacts = execution?.artifacts?.length > 0;
+
   const content = (
     <div className={`${theme.bg} border ${theme.border} ${isCompact ? 'rounded-lg' : 'rounded-2xl rounded-tl-sm'} overflow-hidden ${isCompact ? '' : 'max-w-4xl'} shadow-sm`}>
-      {/* Header - Clickable to toggle flow */}
-      <button
-        onClick={() => setShowFlow(!showFlow)}
-        className={`w-full ${isCompact ? 'p-3' : 'p-4'} flex items-center justify-between ${theme.hoverBg} transition-colors`}
-      >
+      
+      {/* Workflow View - Header, token breakdown, and DAG (controlled by showDetails from header) */}
+      {showDetails && (
+        <>
+          {/* Header - Clickable to expand/collapse workflow visualization */}
+          <button
+            onClick={() => hasWorkflowData && setShowFlow(!showFlow)}
+            className={`w-full ${isCompact ? 'p-3' : 'p-4'} flex items-center justify-between ${hasWorkflowData ? theme.hoverBg : ''} transition-colors ${hasWorkflowData ? 'cursor-pointer' : ''}`}
+          >
         <div className="flex items-center gap-3">
           {/* Status indicator */}
           <div className="relative">
@@ -181,14 +278,16 @@ function ExecutionView({
             </div>
           )}
 
-          {/* Expand/collapse chevron */}
-          <div className="p-1 rounded-full bg-slate-100 dark:bg-gray-700/50">
-            {showFlow ? (
-              <ChevronUp className="w-4 h-4 text-slate-500 dark:text-gray-400" />
-            ) : (
-              <ChevronDown className="w-4 h-4 text-slate-500 dark:text-gray-400" />
-            )}
-          </div>
+          {/* Expand/collapse chevron - only show if we have workflow data */}
+          {hasWorkflowData && (
+            <div className="p-1 rounded-full bg-slate-100 dark:bg-gray-700/50">
+              {showFlow ? (
+                <ChevronUp className="w-4 h-4 text-slate-500 dark:text-gray-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-slate-500 dark:text-gray-400" />
+              )}
+            </div>
+          )}
         </div>
       </button>
 
@@ -260,32 +359,106 @@ function ExecutionView({
         </div>
       )}
 
-      {/* NOTE: Streaming response preview removed - users prefer to see the workflow 
-          without the response preview on top. The final response appears as a 
-          normal chat bubble when execution completes. */}
+      {/* Expandable Workflow Visualization - only if we have workflow data */}
+      {hasWorkflowData && (
+        <AnimatePresence>
+          {showFlow && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className={`border-t ${isStopped ? 'border-orange-500/20' : isComplete ? 'border-green-500/20' : 'border-slate-200/50 dark:border-purple-500/20'}`}
+            >
+              {/* Auto height - content determines size, with max constraint */}
+              <div className="max-h-[500px] overflow-y-auto">
+                <WorkflowVisualization
+                  execution={execution}
+                  isPanel={true}
+                  isLive={!isComplete && !isStopped}
+                  onRetry={onRetry}
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
+        </>
+      )}
 
-      {/* Expandable Workflow Visualization */}
-      <AnimatePresence>
-        {showFlow && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className={`border-t ${isStopped ? 'border-orange-500/20' : isComplete ? 'border-green-500/20' : 'border-slate-200/50 dark:border-purple-500/20'}`}
-          >
-            {/* Auto height - content determines size, with max constraint */}
-            <div className="max-h-[500px] overflow-y-auto">
-              <WorkflowVisualization
-                execution={execution}
-                isPanel={true}
-                isLive={!isComplete && !isStopped}
-                onRetry={onRetry}
-              />
+      {/* Response content - streaming or final */}
+      {(execution?.streamingContent || execution?.output) && (
+        <div className={`${showDetails ? 'border-t' : ''} ${isStopped ? 'border-orange-500/20' : isComplete ? 'border-green-500/20' : 'border-slate-200/50 dark:border-purple-500/20'} p-4`}>
+          <div className="prose prose-slate dark:prose-invert prose-sm max-w-none">
+            <MarkdownRenderer 
+              content={execution.streamingContent || execution.output} 
+              references={execution?.references || []}
+            />
+            {execution.stage === 'streaming' && (
+              <span className="inline-block w-2 h-4 bg-violet-500 dark:bg-purple-400 animate-pulse ml-0.5 align-middle" />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Artifacts - clickable to open preview panel */}
+      {execution?.artifacts?.length > 0 && (
+        <div className={`border-t ${isStopped ? 'border-orange-500/20' : isComplete ? 'border-green-500/20' : 'border-slate-200/50 dark:border-purple-500/20'} p-4`}>
+          <p className="text-xs font-medium text-slate-500 dark:text-gray-400 mb-2">
+            {execution.artifacts.length} artifact{execution.artifacts.length !== 1 ? 's' : ''} created
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {execution.artifacts.map((artifact, idx) => {
+              const Icon = getArtifactIcon(artifact);
+              const filename = artifact.path?.split('/').pop() || artifact.name || `artifact-${idx}`;
+              return (
+                <button
+                  key={artifact.path || idx}
+                  onClick={() => onPreviewArtifact?.(artifact)}
+                  className="flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-gray-700/50 hover:bg-slate-200 dark:hover:bg-gray-600/50 rounded-lg transition-colors text-sm text-slate-700 dark:text-gray-300 border border-slate-200 dark:border-gray-600"
+                >
+                  <Icon className="w-4 h-4 text-violet-500 dark:text-purple-400" />
+                  <span className="truncate max-w-[200px]">{filename}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* References - Compact inline list */}
+      {execution?.references?.length > 0 && (
+        <div className={`border-t ${isStopped ? 'border-orange-500/20' : isComplete ? 'border-green-500/20' : 'border-slate-200/50 dark:border-purple-500/20'} px-4 py-2.5`}>
+          <div className="flex items-start gap-2">
+            <span className="text-[10px] font-medium text-slate-400 dark:text-gray-500 uppercase tracking-wide mt-0.5">Sources</span>
+            <div className="flex-1 flex flex-wrap gap-x-3 gap-y-1">
+              {execution.references.map((ref, idx) => {
+                const isWeb = ref.type === 'web' || ref.url;
+                return (
+                  <a
+                    key={ref.url || ref.source || idx}
+                    href={ref.url || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors group"
+                  >
+                    <span className={`text-[9px] font-semibold px-1 py-0.5 rounded ${
+                      isWeb 
+                        ? 'bg-blue-100/70 dark:bg-blue-500/15 text-blue-500 dark:text-blue-400' 
+                        : 'bg-amber-100/70 dark:bg-amber-500/15 text-amber-500 dark:text-amber-400'
+                    }`}>
+                      {idx + 1}
+                    </span>
+                    <span className="truncate max-w-[180px] group-hover:underline">
+                      {ref.title || (ref.url ? new URL(ref.url).hostname : ref.source) || 'Source'}
+                    </span>
+                  </a>
+                );
+              })}
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+        </div>
+      )}
     </div>
   );
 

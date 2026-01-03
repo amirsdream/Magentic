@@ -6,11 +6,6 @@ import React from 'react';
 import { Loader2, ChevronDown, ChevronUp, Coins, DollarSign } from 'lucide-react';
 
 function AgentStep({ agent, status, index, expanded, onToggle, compact = false }) {
-  // Debug: log when status changes
-  React.useEffect(() => {
-    console.log(`AgentStep ${agent.agent_id} status changed:`, status?.status || 'no status');
-  }, [agent.agent_id, status?.status]);
-
   const getStatusIcon = () => {
     if (!status) {
       return <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full" />;
