@@ -1,0 +1,65 @@
+name: magentic_app
+description: Magentic - Dynamic Multi-Agent AI Orchestration
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  flutter_riverpod: ^2.4.9
+  riverpod_annotation: ^2.3.3
+
+  # Networking
+  web_socket_channel: ^2.4.0
+  http: ^1.2.0
+  dio: ^5.4.0
+
+  # UI Components
+  cupertino_icons: ^1.0.6
+  google_fonts: ^6.1.0
+  flutter_animate: ^4.3.0
+  shimmer: ^3.0.0
+  cached_network_image: ^3.3.1
+
+  # Markdown Rendering
+  flutter_markdown: ^0.6.18
+  markdown: ^7.2.1
+  flutter_highlighter: ^0.1.1
+  flutter_syntax_view: ^4.0.0
+
+  # Icons
+  lucide_icons: ^0.257.0
+
+  # Utilities
+  intl: ^0.18.1
+  uuid: ^4.2.2
+  shared_preferences: ^2.2.2
+  url_launcher: ^6.2.3
+  path_provider: ^2.1.2
+  collection: ^1.18.0
+  equatable: ^2.0.5
+  json_annotation: ^4.8.1
+
+  # Graph/DAG Visualization
+  graphview: ^1.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+  build_runner: ^2.4.8
+  riverpod_generator: ^2.3.9
+  json_serializable: ^6.7.1
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
