@@ -277,12 +277,19 @@ async def root():
 @app.get("/health", tags=["health"])
 async def health_check():
     """Health check endpoint - verify API is running."""
-    return {
+    payload: Dict[str, Any] = {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "llm_provider": config.llm_provider if config else "unknown",
         "execution_engine": config.execution_engine if config else "unknown",
     }
+    if config and config.execution_engine == "ropex" and isinstance(executor, RopexExecutor):
+        try:
+            payload["ropex"] = await executor.health_check()
+        except Exception as exc:
+            payload["status"] = "degraded"
+            payload["ropex"] = {"status": "unreachable", "error": str(exc)}
+    return payload
 
 
 @app.get("/pricing", tags=["health"])
