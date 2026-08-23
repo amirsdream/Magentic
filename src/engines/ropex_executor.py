@@ -3,7 +3,8 @@
 Talks to Ropex over HTTP + SSE only (repos stay independent).
 Contract: docs/executor-api.md in the Ropex repo.
 
-- POST /api/v1/pipeline
+- POST /api/v1/pipeline  (submit or { action: drain, pipelineId })
+- GET  /api/v1/pipeline?id=
 - GET  /api/v1/events?pipelineId=&format=ui
 """
 
@@ -12,44 +13,55 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, AsyncIterator, Callable, Dict, Optional, Awaitable
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Optional
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
-# Native Ropex `kind` → Magentic WebSocket `type` (also applied by Ropex format=ui)
+# Native Ropex `kind` → Magentic WebSocket `type` (mirrors ropex mapExecutorEventToUi)
 ROPEX_KIND_TO_UI_TYPE = {
     "pipeline.plan": "plan",
     "stage.start": "agent_start",
     "stage.log": "agent_log",
     "stage.complete": "agent_complete",
+    "stage.failed": "agent_complete",
     "pipeline.complete": "complete",
     "pipeline.error": "error",
+    "pipeline.end": "stream_end",
 }
 
-TERMINAL_UI_TYPES = frozenset({"complete", "error"})
+SSE_TERMINAL_UI_TYPES = frozenset({"stream_end", "error"})
 
 
 def map_ropex_event_to_ui(event: Dict[str, Any]) -> Dict[str, Any]:
     """Map a native Ropex executor event to Magentic `{ type, data }` shape.
 
-    Prefer consuming `format=ui` SSE from Ropex; this mapper is used when
-    receiving native events or for unit tests.
+    Mirrors `mapExecutorEventToUi` in the Ropex repo. Prefer `format=ui` SSE when
+    available; this mapper supports native events and unit tests.
     """
     kind = event.get("kind", "")
-    ui_type = ROPEX_KIND_TO_UI_TYPE.get(kind, "status")
 
     if kind == "pipeline.plan":
         meta = event.get("meta") or {}
+        agents: Any = []
+        if isinstance(meta.get("agents"), str):
+            try:
+                agents = json.loads(meta["agents"])
+            except json.JSONDecodeError:
+                agents = []
         return {
             "type": "plan",
             "data": {
+                "description": event.get("message"),
                 "message": event.get("message"),
                 "stages": meta.get("stages"),
-                "description": event.get("message") or "Ropex pipeline plan",
+                "agents": agents,
+                "total_agents": len(agents) if agents else meta.get("stages"),
+                "total_layers": 1,
             },
         }
+
     if kind == "stage.start":
         meta = event.get("meta") or {}
         return {
@@ -62,26 +74,33 @@ def map_ropex_event_to_ui(event: Dict[str, Any]) -> Dict[str, Any]:
                 "task": event.get("message"),
             },
         }
+
     if kind == "stage.log":
+        meta = event.get("meta") or {}
+        message = event.get("message") or ""
         return {
             "type": "agent_log",
             "data": {
-                "message": event.get("message"),
+                "message": message,
+                "content": message,
                 "stage_id": event.get("stageId"),
                 "agent_id": event.get("taskId"),
-                "log_type": "log",
-                "content": event.get("message") or "",
+                "log_type": meta.get("log_type") or "log",
+                "metadata": {},
             },
         }
-    if kind == "stage.complete":
+
+    if kind in ("stage.complete", "stage.failed"):
         meta = event.get("meta") or {}
         artifact = event.get("artifact")
+        failed = kind == "stage.failed" or meta.get("error") is True
         return {
             "type": "agent_complete",
             "data": {
                 "agent_id": event.get("taskId"),
                 "role": meta.get("role") or event.get("stageId"),
                 "output": artifact or event.get("message"),
+                "error": failed,
                 "artifacts": (
                     [{"path": f"{event.get('stageId')}.txt", "content": artifact}]
                     if artifact
@@ -89,6 +108,7 @@ def map_ropex_event_to_ui(event: Dict[str, Any]) -> Dict[str, Any]:
                 ),
             },
         }
+
     if kind == "pipeline.complete":
         return {
             "type": "complete",
@@ -98,6 +118,7 @@ def map_ropex_event_to_ui(event: Dict[str, Any]) -> Dict[str, Any]:
                 "session_id": event.get("pipelineId"),
             },
         }
+
     if kind == "pipeline.error":
         return {
             "type": "error",
@@ -107,10 +128,61 @@ def map_ropex_event_to_ui(event: Dict[str, Any]) -> Dict[str, Any]:
             },
         }
 
+    if kind == "pipeline.end":
+        return {
+            "type": "stream_end",
+            "data": {"pipeline_id": event.get("pipelineId")},
+        }
+
+    ui_type = ROPEX_KIND_TO_UI_TYPE.get(kind, "status")
     return {
         "type": ui_type,
         "data": {"kind": kind, "message": event.get("message")},
     }
+
+
+def normalize_ui_event(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Adapt Ropex `format=ui` payloads for Magentic frontend field expectations."""
+    ui_type = event.get("type")
+    data = dict(event.get("data") or {})
+
+    if ui_type == "agent_log":
+        if "content" not in data and "message" in data:
+            data["content"] = data["message"]
+        data.setdefault("metadata", {})
+
+    if ui_type == "plan":
+        agents = data.get("agents")
+        if isinstance(agents, list):
+            data["agents"] = [
+                {**agent, "status": agent.get("status", "pending")} for agent in agents
+            ]
+
+    if ui_type == "complete":
+        data.setdefault("session_id", data.get("pipeline_id"))
+
+    return {"type": ui_type, "data": data}
+
+
+def _parse_sse_payload(line: str, sse_event: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Parse one SSE `data:` line (and optional preceding `event:` name)."""
+    if sse_event == "end":
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            payload = {}
+        pipeline_id = payload.get("pipelineId")
+        return {"type": "stream_end", "data": {"pipeline_id": pipeline_id}}
+
+    try:
+        payload = json.loads(line)
+    except json.JSONDecodeError:
+        logger.warning("Skipping invalid SSE JSON from Ropex: %s", line[:200])
+        return None
+
+    if "type" in payload and "kind" not in payload:
+        return normalize_ui_event(payload)
+    return normalize_ui_event(map_ropex_event_to_ui(payload))
 
 
 class RopexExecutor:
@@ -121,14 +193,14 @@ class RopexExecutor:
         base_url: str,
         *,
         timeout: float = 600.0,
-        drain: bool = True,
+        async_drain: bool = True,
         concurrency: Optional[int] = None,
     ):
         if not base_url:
             raise ValueError("ROPEX_BASE_URL is required for RopexExecutor")
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.drain = drain
+        self.async_drain = async_drain
         self.concurrency = concurrency
         self.pipeline_path = "/api/v1/pipeline"
         self.events_path = "/api/v1/events"
@@ -146,10 +218,10 @@ class RopexExecutor:
         drain: Optional[bool] = None,
         concurrency: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """POST /api/v1/pipeline — plan + enqueue (and optionally drain) stages."""
+        """POST /api/v1/pipeline — plan + enqueue (optionally drain) stages."""
         body: Dict[str, Any] = {
             "prompt": prompt,
-            "drain": self.drain if drain is None else drain,
+            "drain": False if drain is None and self.async_drain else (True if drain is None else drain),
         }
         if stages is not None:
             body["stages"] = stages
@@ -164,6 +236,30 @@ class RopexExecutor:
             response.raise_for_status()
             return response.json()
 
+    async def drain_pipeline(
+        self,
+        pipeline_id: str,
+        *,
+        concurrency: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """POST /api/v1/pipeline { action: drain, pipelineId } — scoped sequential drain."""
+        body: Dict[str, Any] = {"action": "drain", "pipelineId": pipeline_id}
+        conc = self.concurrency if concurrency is None else concurrency
+        if conc is not None:
+            body["concurrency"] = conc
+
+        async with self._client() as client:
+            response = await client.post(self.pipeline_path, json=body)
+            response.raise_for_status()
+            return response.json()
+
+    async def get_pipeline(self, pipeline_id: str) -> Dict[str, Any]:
+        """GET /api/v1/pipeline?id= — status, stages, persisted events."""
+        async with self._client() as client:
+            response = await client.get(self.pipeline_path, params={"id": pipeline_id})
+            response.raise_for_status()
+            return response.json()
+
     async def iter_ui_events(
         self,
         pipeline_id: str,
@@ -172,6 +268,8 @@ class RopexExecutor:
     ) -> AsyncIterator[Dict[str, Any]]:
         """GET /api/v1/events?pipelineId=&format=ui — yield Magentic `{type, data}` payloads."""
         params = {"pipelineId": pipeline_id, "format": "ui"}
+        sse_event: Optional[str] = None
+
         async with self._client(stream=True) as client:
             async with client.stream("GET", self.events_path, params=params) as response:
                 response.raise_for_status()
@@ -180,25 +278,23 @@ class RopexExecutor:
                         raise asyncio.CancelledError("Ropex SSE cancelled")
                     if not line or line.startswith(":"):
                         continue
+                    if line.startswith("event:"):
+                        sse_event = line[6:].strip()
+                        continue
                     if not line.startswith("data:"):
                         continue
+
                     raw = line[5:].strip()
                     if not raw:
                         continue
-                    try:
-                        payload = json.loads(raw)
-                    except json.JSONDecodeError:
-                        logger.warning("Skipping invalid SSE JSON from Ropex: %s", raw[:200])
+
+                    event = _parse_sse_payload(raw, sse_event)
+                    sse_event = None
+                    if event is None:
                         continue
 
-                    # format=ui already returns {type, data}; native events have `kind`
-                    if "type" in payload and "kind" not in payload:
-                        event = payload
-                    else:
-                        event = map_ropex_event_to_ui(payload)
-
                     yield event
-                    if event.get("type") in TERMINAL_UI_TYPES:
+                    if event.get("type") in SSE_TERMINAL_UI_TYPES:
                         return
 
     async def execute_query(
@@ -208,18 +304,17 @@ class RopexExecutor:
         plan: Any = None,
         cancel_event: Optional[asyncio.Event] = None,
     ) -> Dict[str, Any]:
-        """Run a query on Ropex (non-WebSocket). Compatible with LangGraphExecutor signature."""
-        del stream, plan  # unused — Ropex owns planning
+        """Run a query on Ropex (non-WebSocket). Uses synchronous drain."""
+        del stream, plan
         if cancel_event is not None and cancel_event.is_set():
             raise asyncio.CancelledError("Execution cancelled")
 
-        result = await self.submit_pipeline(query)
+        result = await self.submit_pipeline(query, drain=True)
         pipeline = result.get("pipeline") or {}
         pipeline_id = pipeline.get("id", "")
         output = pipeline.get("output") or ""
 
-        # Prefer final output from complete event if pipeline body has none
-        if not output and pipeline_id:
+        if pipeline_id:
             async for event in self.iter_ui_events(pipeline_id, cancel_event=cancel_event):
                 if event.get("type") == "complete":
                     data = event.get("data") or {}
@@ -241,6 +336,54 @@ class RopexExecutor:
             "drained": result.get("drained"),
         }
 
+    async def _forward_ui_event(
+        self,
+        send_json: Callable[[Dict[str, Any]], Awaitable[None]],
+        event: Dict[str, Any],
+    ) -> tuple[Optional[str], bool, bool]:
+        """Forward one UI event. Returns (output, saw_complete, stop)."""
+        event = normalize_ui_event(event)
+        ui_type = event.get("type")
+        data = event.get("data") or {}
+        final_output: Optional[str] = None
+        saw_complete = False
+        stop = False
+
+        if ui_type == "error":
+            await send_json(
+                {
+                    "type": "error",
+                    "message": data.get("message") or "Ropex error",
+                    "data": data,
+                }
+            )
+            return None, False, True
+
+        if ui_type == "complete":
+            final_output = data.get("output") or ""
+            await send_json(
+                {
+                    "type": "complete",
+                    "data": {
+                        "output": final_output,
+                        "session_id": data.get("session_id") or data.get("pipeline_id"),
+                        "pipeline_id": data.get("pipeline_id"),
+                        "execution_time": data.get("execution_time", 0),
+                        "token_usage": data.get("token_usage"),
+                        "references": data.get("references", []),
+                        "artifacts": data.get("artifacts", []),
+                    },
+                }
+            )
+            return final_output, True, False
+
+        if ui_type == "stream_end":
+            await send_json(event)
+            return None, False, True
+
+        await send_json(event)
+        return None, False, False
+
     async def relay_to_websocket(
         self,
         send_json: Callable[[Dict[str, Any]], Awaitable[None]],
@@ -248,7 +391,11 @@ class RopexExecutor:
         *,
         cancel_event: Optional[asyncio.Event] = None,
     ) -> Dict[str, Any]:
-        """Submit pipeline and relay format=ui SSE events via send_json (WebSocket)."""
+        """Submit to Ropex and relay format=ui SSE events via send_json (WebSocket).
+
+        Default (async_drain=True): submit with drain=false, open SSE, then scoped drain
+        so events stream live while stages run sequentially (Ropex Magentic adapter flow).
+        """
         if cancel_event is not None and cancel_event.is_set():
             raise asyncio.CancelledError("Execution cancelled before submit")
 
@@ -256,55 +403,126 @@ class RopexExecutor:
             {"type": "status", "message": "Submitting to Ropex...", "stage": "ropex_submit"}
         )
 
-        result = await self.submit_pipeline(query)
+        if self.async_drain:
+            return await self._relay_async_drain(send_json, query, cancel_event=cancel_event)
+        return await self._relay_sync_drain(send_json, query, cancel_event=cancel_event)
+
+    async def _relay_async_drain(
+        self,
+        send_json: Callable[[Dict[str, Any]], Awaitable[None]],
+        query: str,
+        *,
+        cancel_event: Optional[asyncio.Event] = None,
+    ) -> Dict[str, Any]:
+        submit = await self.submit_pipeline(query, drain=False)
+        pipeline = submit.get("pipeline") or {}
+        pipeline_id = pipeline.get("id")
+        if not pipeline_id:
+            raise RuntimeError("Ropex did not return a pipeline id")
+
+        final_output = ""
+        saw_complete = False
+        drain_task: Optional[asyncio.Task] = None
+
+        try:
+            params = {"pipelineId": pipeline_id, "format": "ui"}
+            sse_event: Optional[str] = None
+
+            async with self._client(stream=True) as client:
+                async with client.stream("GET", self.events_path, params=params) as response:
+                    response.raise_for_status()
+                    drain_task = asyncio.create_task(self.drain_pipeline(pipeline_id))
+
+                    async for line in response.aiter_lines():
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise asyncio.CancelledError("Ropex relay cancelled")
+                        if not line or line.startswith(":"):
+                            continue
+                        if line.startswith("event:"):
+                            sse_event = line[6:].strip()
+                            continue
+                        if not line.startswith("data:"):
+                            continue
+
+                        raw = line[5:].strip()
+                        if not raw:
+                            continue
+
+                        event = _parse_sse_payload(raw, sse_event)
+                        sse_event = None
+                        if event is None:
+                            continue
+
+                        out, complete, stop = await self._forward_ui_event(send_json, event)
+                        if out is not None:
+                            final_output = out
+                        if complete:
+                            saw_complete = True
+                        if stop:
+                            break
+        finally:
+            if drain_task is not None:
+                try:
+                    await drain_task
+                except Exception as exc:
+                    logger.warning("Ropex drain task failed: %s", exc)
+                    if not saw_complete:
+                        raise
+
+        if not saw_complete:
+            pipeline_state = await self.get_pipeline(pipeline_id)
+            final_output = pipeline_state.get("output") or final_output
+            if pipeline_state.get("status") == "failed":
+                raise RuntimeError(pipeline_state.get("error") or "Ropex pipeline failed")
+            await send_json(
+                {
+                    "type": "complete",
+                    "data": {
+                        "output": final_output,
+                        "session_id": pipeline_id,
+                        "pipeline_id": pipeline_id,
+                        "execution_time": 0,
+                        "references": [],
+                        "artifacts": [],
+                    },
+                }
+            )
+
+        return {
+            "final_output": final_output,
+            "session_id": pipeline_id,
+            "execution_time": 0,
+            "references": [],
+            "artifacts": [],
+            "pipeline": pipeline,
+        }
+
+    async def _relay_sync_drain(
+        self,
+        send_json: Callable[[Dict[str, Any]], Awaitable[None]],
+        query: str,
+        *,
+        cancel_event: Optional[asyncio.Event] = None,
+    ) -> Dict[str, Any]:
+        result = await self.submit_pipeline(query, drain=True)
         pipeline = result.get("pipeline") or {}
         pipeline_id = pipeline.get("id")
         if not pipeline_id:
             raise RuntimeError("Ropex did not return a pipeline id")
 
         final_output = pipeline.get("output") or ""
-        saw_terminal = False
+        saw_complete = False
 
         async for event in self.iter_ui_events(pipeline_id, cancel_event=cancel_event):
-            ui_type = event.get("type")
-            data = event.get("data") or {}
-
-            if ui_type == "error":
-                # Magentic WS also accepts top-level message for errors
-                await send_json(
-                    {
-                        "type": "error",
-                        "message": data.get("message") or "Ropex error",
-                        "data": data,
-                    }
-                )
-                saw_terminal = True
+            out, complete, stop = await self._forward_ui_event(send_json, event)
+            if out is not None:
+                final_output = out
+            if complete:
+                saw_complete = True
+            if stop:
                 break
 
-            if ui_type == "complete":
-                final_output = data.get("output") or final_output
-                # Normalize complete payload for Magentic UI
-                await send_json(
-                    {
-                        "type": "complete",
-                        "data": {
-                            "output": final_output,
-                            "session_id": data.get("session_id") or pipeline_id,
-                            "pipeline_id": pipeline_id,
-                            "execution_time": data.get("execution_time", 0),
-                            "token_usage": data.get("token_usage"),
-                            "references": data.get("references", []),
-                            "artifacts": data.get("artifacts", []),
-                        },
-                    }
-                )
-                saw_terminal = True
-                break
-
-            await send_json(event)
-
-        if not saw_terminal:
-            # Drain finished but SSE ended without complete — synthesize from POST body
+        if not saw_complete:
             await send_json(
                 {
                     "type": "complete",

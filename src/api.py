@@ -179,10 +179,14 @@ async def startup_event():
 
     # Ropex path: HTTP + SSE only — do NOT initialize or fall back to LangGraph
     if config.execution_engine == "ropex":
-        executor = RopexExecutor(base_url=config.ropex_base_url)
+        executor = RopexExecutor(
+            base_url=config.ropex_base_url,
+            async_drain=config.ropex_async_drain,
+        )
         logger.info(
-            "✓ Ropex executor ready (%s) — LangGraph skipped",
+            "✓ Ropex executor ready (%s, async_drain=%s) — LangGraph skipped",
             config.ropex_base_url,
+            config.ropex_async_drain,
         )
         return
 

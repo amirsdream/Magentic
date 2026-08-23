@@ -113,6 +113,11 @@ class Config:
         # Execution engine: langgraph (default) or ropex (HTTP + SSE, no LangGraph fallback)
         self.execution_engine: str = os.getenv("EXECUTION_ENGINE", "langgraph").lower()
         self.ropex_base_url: str = os.getenv("ROPEX_BASE_URL", "").rstrip("/")
+        self.ropex_async_drain: bool = os.getenv("ROPEX_ASYNC_DRAIN", "true").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
 
     def validate(self) -> tuple[bool, Optional[str]]:
         """Validate configuration values.
