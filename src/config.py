@@ -110,25 +110,44 @@ class Config:
         self.enable_mcp: bool = os.getenv("ENABLE_MCP", "false").lower() in ("true", "1", "yes")
         self.mcp_gateway_url: str = os.getenv("MCP_GATEWAY_URL", "http://localhost:9000")
 
+        # Execution engine: langgraph (default) or ropex (HTTP + SSE, no LangGraph fallback)
+        self.execution_engine: str = os.getenv("EXECUTION_ENGINE", "langgraph").lower()
+        self.ropex_base_url: str = os.getenv("ROPEX_BASE_URL", "").rstrip("/")
+        self.ropex_async_drain: bool = os.getenv("ROPEX_ASYNC_DRAIN", "true").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+
     def validate(self) -> tuple[bool, Optional[str]]:
         """Validate configuration values.
 
         Returns:
             Tuple of (is_valid, error_message).
         """
-        # Validate LLM provider
+        if self.execution_engine not in ("langgraph", "ropex"):
+            return (
+                False,
+                f"EXECUTION_ENGINE must be 'langgraph' or 'ropex', got '{self.execution_engine}'",
+            )
+
+        if self.execution_engine == "ropex" and not self.ropex_base_url:
+            return False, "ROPEX_BASE_URL is required when EXECUTION_ENGINE=ropex"
+
+        # Validate LLM provider (still required for langgraph; optional metadata for ropex)
         if self.llm_provider not in ["ollama", "openai", "claude", "vllm"]:
             return (
                 False,
                 f"LLM_PROVIDER must be 'ollama', 'openai', 'claude', or 'vllm', got '{self.llm_provider}'",
             )
 
-        # Validate API keys for cloud providers
-        if self.llm_provider == "openai" and not self.openai_api_key:
-            return False, "OPENAI_API_KEY is required when LLM_PROVIDER=openai"
+        # Validate API keys for cloud providers (LangGraph path only; Ropex owns LLM calls)
+        if self.execution_engine != "ropex":
+            if self.llm_provider == "openai" and not self.openai_api_key:
+                return False, "OPENAI_API_KEY is required when LLM_PROVIDER=openai"
 
-        if self.llm_provider == "claude" and not self.anthropic_api_key:
-            return False, "ANTHROPIC_API_KEY is required when LLM_PROVIDER=claude"
+            if self.llm_provider == "claude" and not self.anthropic_api_key:
+                return False, "ANTHROPIC_API_KEY is required when LLM_PROVIDER=claude"
 
         if self.llm_temperature < 0 or self.llm_temperature > 2:
             return False, "LLM_TEMPERATURE must be between 0 and 2"
