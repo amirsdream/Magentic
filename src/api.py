@@ -18,6 +18,7 @@ from .tools import ToolManager
 from .agents import MetaAgentSystem
 from .agents.token_tracker import reset_tracker, get_tracker
 from .langgraph_runner import LangGraphExecutor
+from .engines.ropex_executor import RopexExecutor
 from .database import (
     get_db,
     get_or_create_user,
@@ -128,7 +129,7 @@ add_metrics_endpoint(app)
 # Global instances
 config: Config = None  # type: ignore
 meta_system: MetaAgentSystem = None  # type: ignore
-executor: LangGraphExecutor = None  # type: ignore
+executor: Any = None  # LangGraphExecutor | RopexExecutor
 
 # Active WebSocket connections
 active_connections: List[WebSocket] = []
@@ -175,6 +176,15 @@ async def startup_event():
     is_valid, error_msg = config.validate()
     if not is_valid:
         raise RuntimeError(f"Invalid configuration: {error_msg}")
+
+    # Ropex path: HTTP + SSE only — do NOT initialize or fall back to LangGraph
+    if config.execution_engine == "ropex":
+        executor = RopexExecutor(base_url=config.ropex_base_url)
+        logger.info(
+            "✓ Ropex executor ready (%s) — LangGraph skipped",
+            config.ropex_base_url,
+        )
+        return
 
     # Initialize RAG service (optional)
     global rag_service
@@ -256,6 +266,7 @@ async def root():
         "version": "1.3.0",
         "status": "ready",
         "llm_provider": config.llm_provider if config else "unknown",
+        "execution_engine": config.execution_engine if config else "unknown",
     }
 
 
@@ -266,6 +277,7 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "llm_provider": config.llm_provider if config else "unknown",
+        "execution_engine": config.execution_engine if config else "unknown",
     }
 
 
@@ -760,6 +772,21 @@ async def process_query_with_updates(
 ):
     """Process query and send real-time updates via WebSocket."""
     try:
+        # Ropex engine: relay SSE → WebSocket; never fall back to LangGraph
+        if config and config.execution_engine == "ropex":
+            if not isinstance(executor, RopexExecutor):
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": "EXECUTION_ENGINE=ropex but RopexExecutor is not initialized",
+                    }
+                )
+                return
+            await _process_query_via_ropex(
+                websocket, query, username, cancel_event, session_id=session_id
+            )
+            return
+
         # Helper to check if cancelled
         def is_cancelled():
             return cancel_event is not None and cancel_event.is_set()
@@ -1081,6 +1108,56 @@ async def process_query_with_updates(
     except Exception as e:
         logger.error(f"Error in process_query_with_updates: {e}")
         await websocket.send_json({"type": "error", "message": str(e)})
+
+
+async def _process_query_via_ropex(
+    websocket: WebSocket,
+    query: str,
+    username: str = "guest",
+    cancel_event: Optional[asyncio.Event] = None,
+    session_id: Optional[str] = None,
+):
+    """Delegate execution to Ropex and relay format=ui SSE events to the WebSocket."""
+    assert isinstance(executor, RopexExecutor)
+
+    async def send_json(payload: Dict[str, Any]) -> None:
+        await websocket.send_json(payload)
+
+    result = await executor.relay_to_websocket(send_json, query, cancel_event=cancel_event)
+    final_output = result.get("final_output", "")
+    pipeline_id = result.get("session_id", "")
+    save_session_id = session_id or pipeline_id
+
+    try:
+        from .database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            user = get_or_create_user(db, username, is_guest=username.startswith("guest_"))
+            if not user.is_guest:  # type: ignore
+                save_conversation(
+                    db,
+                    user.id,
+                    query,
+                    final_output,
+                    {"engine": "ropex", "pipeline_id": pipeline_id},
+                    save_session_id,
+                    None,
+                )
+                if save_session_id:
+                    add_chat_message(db, save_session_id, "user", query)
+                    add_chat_message(
+                        db,
+                        save_session_id,
+                        "assistant",
+                        final_output,
+                        {"engine": "ropex", "pipeline_id": pipeline_id},
+                    )
+                logger.info(f"Saved Ropex conversation for user {username}")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Failed to save Ropex conversation: {e}")
 
 
 async def execute_with_progress(

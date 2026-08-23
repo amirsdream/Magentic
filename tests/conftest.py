@@ -11,6 +11,8 @@ def test_env(monkeypatch):
     monkeypatch.setenv("ENABLE_RAG", "false")
     monkeypatch.setenv("ENABLE_MCP", "false")
     monkeypatch.setenv("ENABLE_OBSERVABILITY", "false")
+    monkeypatch.delenv("EXECUTION_ENGINE", raising=False)
+    monkeypatch.delenv("ROPEX_BASE_URL", raising=False)
 
 
 @pytest.fixture

@@ -24,6 +24,11 @@ class TestConfig:
         assert config.agent_context_limit == 4000
         assert config.agent_history_limit == 500
 
+    def test_execution_engine_default(self, monkeypatch):
+        monkeypatch.delenv("EXECUTION_ENGINE", raising=False)
+        config = Config()
+        assert config.execution_engine == "langgraph"
+
     def test_validation_valid(self):
         """Test validation with valid config."""
         config = Config()
