@@ -7,6 +7,7 @@ import pytest
 from src.config import Config
 from src.engines.ropex_executor import (
     ROPEX_KIND_TO_UI_TYPE,
+    RopexApiError,
     RopexExecutor,
     map_ropex_event_to_ui,
     normalize_ui_event,
@@ -65,6 +66,7 @@ class TestRopexEventMapping:
 
     def test_kind_map_covers_required_types(self):
         assert set(ROPEX_KIND_TO_UI_TYPE.values()) == {
+            "status",
             "plan",
             "agent_start",
             "agent_log",
@@ -73,6 +75,13 @@ class TestRopexEventMapping:
             "error",
             "stream_end",
         }
+
+    def test_map_pipeline_start(self):
+        mapped = map_ropex_event_to_ui(
+            {"pipelineId": "p1", "kind": "pipeline.start", "message": "do work"}
+        )
+        assert mapped["type"] == "status"
+        assert mapped["data"]["pipeline_id"] == "p1"
 
     def test_map_plan_with_agents_json(self):
         agents = [
@@ -137,6 +146,7 @@ class TestRopexEventMapping:
         )
         assert mapped["type"] == "agent_complete"
         assert mapped["data"]["error"] is True
+        assert mapped["data"]["status"] == "error"
 
     def test_map_pipeline_end_as_stream_end(self):
         mapped = map_ropex_event_to_ui(
@@ -376,3 +386,87 @@ class TestRopexExecutorHttp:
 
         result = await executor.relay_to_websocket(send_json, "sync query")
         assert result["final_output"] == "sync out"
+
+    @pytest.mark.asyncio
+    async def test_submit_unknown_agent_raises_ropex_api_error(self, monkeypatch):
+        httpx = pytest.importorskip("httpx")
+
+        class FakeResponse:
+            status_code = 400
+
+            def json(self):
+                return {"error": "unknown agent(s): ghost — apply fleet manifests first"}
+
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def post(self, path, json=None):
+                return FakeResponse()
+
+        monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+        executor = RopexExecutor("http://127.0.0.1:7780")
+
+        with pytest.raises(RopexApiError, match="unknown agent"):
+            await executor.submit_pipeline("bad prompt", drain=False)
+
+    @pytest.mark.asyncio
+    async def test_finalize_rejects_non_terminal_pipeline(self, monkeypatch):
+        httpx = pytest.importorskip("httpx")
+
+        pipeline_id = "pipe-partial"
+
+        class FakeResponse:
+            def __init__(self, status_code=200, json_data=None, lines=None):
+                self.status_code = status_code
+                self._json = json_data or {}
+                self._lines = lines or []
+
+            def json(self):
+                return self._json
+
+            async def aiter_lines(self):
+                for line in self._lines:
+                    yield line
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def post(self, path, json=None):
+                if json.get("action") == "drain":
+                    return FakeResponse(json_data={"ok": True, "pipeline": {"id": pipeline_id, "status": "running"}})
+                return FakeResponse(json_data={"ok": True, "pipeline": {"id": pipeline_id, "status": "running"}})
+
+            async def get(self, path, params=None):
+                return FakeResponse(json_data={"id": pipeline_id, "status": "running", "output": ""})
+
+            def stream(self, method, path, params=None):
+                return FakeResponse(lines=[f"data: {json.dumps({'type': 'plan', 'data': {'agents': []}})}"])
+
+        monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+        executor = RopexExecutor("http://127.0.0.1:7780", async_drain=True)
+
+        async def send_json(_payload):
+            return None
+
+        with pytest.raises(RuntimeError, match="terminal state"):
+            await executor.relay_to_websocket(send_json, "partial")
