@@ -62,11 +62,11 @@ export function ExecutionStatusHeader({
             </>
           ) : (
             <>
-              <div className="w-6 h-6 rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 dark:from-purple-600 dark:to-pink-600 flex items-center justify-center">
+              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-sky-500 to-teal-500 flex items-center justify-center">
                 <Brain className="w-3 h-3 text-white animate-pulse" />
               </div>
               <motion.div
-                className="absolute inset-0 rounded-full border-2 border-violet-400/50 dark:border-purple-400/50"
+                className="absolute inset-0 rounded-full border-2 border-sky-400/50"
                 animate={{ rotate: 360 }}
                 transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
               />

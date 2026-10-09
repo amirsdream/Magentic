@@ -130,7 +130,15 @@ function App() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden transition-colors duration-200 bg-slate-50 dark:bg-gray-950">
+    <div className="relative flex h-screen overflow-hidden transition-colors duration-200 bg-[#f4f7fb] dark:bg-slate-950">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-70 dark:opacity-40"
+        style={{
+          background:
+            'radial-gradient(ellipse 70% 50% at 10% 0%, rgba(14,165,233,0.10), transparent 55%), radial-gradient(ellipse 50% 40% at 90% 10%, rgba(20,184,166,0.08), transparent 50%)',
+        }}
+      />
       <Toaster 
         position="top-right"
         toastOptions={{
@@ -139,6 +147,7 @@ function App() {
         }}
       />
       
+      <div className="relative z-10 flex h-full w-full min-w-0">
       <Sidebar 
         isOpen={sidebarOpen} 
         onClose={toggleSidebar}
@@ -177,7 +186,10 @@ function App() {
             <EnhancedChatInput
               onSend={handleSend}
               onStop={handleStop}
-              disabled={!isConnected}
+              isConnected={isConnected}
+              disabled={Boolean(
+                executingConversationId && executingConversationId !== activeConversationId
+              )}
               isProcessing={isProcessing}
               showSuggestions={messages.length === 0 && !isProcessing}
               disabledMessage={
@@ -210,6 +222,7 @@ function App() {
             )}
           </AnimatePresence>
         </div>
+      </div>
       </div>
 
       <LoginModal isOpen={showLogin} onClose={closeLogin} />
