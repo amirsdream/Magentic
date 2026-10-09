@@ -411,6 +411,25 @@ html.dark .studio-yaml-scroll {
   animation: studio-yaml-scan 2.4s ease-in-out infinite;
 }
 
+/* ReactFlow canvas inside studio orchestrator */
+.studio-flow-canvas .react-flow__attribution {
+  display: none;
+}
+
+.studio-flow-canvas .react-flow__controls-button {
+  background: transparent;
+  border: none;
+  fill: #64748b;
+}
+
+html.dark .studio-flow-canvas .react-flow__controls-button {
+  fill: #94a3b8;
+}
+
+.studio-flow-canvas .react-flow__controls-button:hover {
+  background: rgba(14, 165, 233, 0.08);
+}
+
 /* Sidebar transition */
 .sidebar-enter {
   transform: translateX(-100%);

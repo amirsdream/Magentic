@@ -316,6 +316,7 @@ function App() {
             <StudioWorkspace
               messages={messages}
               currentExecution={studioExecution}
+              executionHistory={executionHistory}
               onRetry={handleSend}
               onPreviewArtifact={setPreviewArtifact}
               showExecutionDetails={showExecutionDetails}

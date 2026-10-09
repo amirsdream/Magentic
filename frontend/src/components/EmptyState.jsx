@@ -33,7 +33,7 @@ function EmptyState({ studioMode = false }) {
         </motion.p>
         <p className="text-[15px] leading-relaxed text-slate-500 dark:text-slate-400 mb-9">
           {studioMode
-            ? 'Chat to plan a workflow. Review the YAML, walk the steps, approve when you are ready.'
+            ? 'Chat to plan a workflow. Inspect the visual flow, edit steps, approve when you are ready.'
             : 'Ask a question. Watch specialized agents plan, act, and synthesize with a clear progress bar.'}
         </p>
 
@@ -53,9 +53,9 @@ function EmptyState({ studioMode = false }) {
           <div className="space-y-3.5">
             {(studioMode
               ? [
-                  { label: 'Plan YAML', state: 'done' },
+                  { label: 'Visual workflow', state: 'done' },
                   { label: 'Human approval', state: 'live' },
-                  { label: 'Run steps', state: 'pending' },
+                  { label: 'Agent actions', state: 'pending' },
                 ]
               : [
                   { label: 'Plan', state: 'done' },

@@ -4,7 +4,7 @@ Magentic uses **Ropex** as its execution engine when configured. The UI stays in
 
 ```
 Magentic Studio ──WebSocket──▶ Magentic API ──HTTP+SSE──▶ Ropex (:7780)
-  chat | YAML | steps | HITL ◀── plan / approval_required / agent_* / complete
+  chat | visual workflow | actions | HITL ◀── plan / approval_required / agent_* / complete
 ```
 
 ## Quick start
@@ -35,13 +35,13 @@ If `ROPEX_BASE_URL` is set and `EXECUTION_ENGINE` is omitted, Magentic selects R
 ./magentic.sh start
 ```
 
-Open the UI — the header shows a **Ropex** badge and the studio panes (chat, workflow YAML, steps).
+Open the UI — the header shows a **Ropex** badge and the studio panes (chat, visual workflow, agent actions).
 
 ## Studio + human-in-the-loop
 
 1. Submit a query → Ropex plans with `drain: false`
-2. Magentic emits `plan`, then `approval_required` with `workflow_yaml` + agents
-3. UI shows YAML + steps; user sends WebSocket `{ type: "approve"|"reject", pipeline_id }`
+2. Magentic emits `plan`, then `approval_required` with agents (+ optional `workflow_yaml`)
+3. UI shows a visual workflow canvas (loadable/editable) and per-step action flows; user sends WebSocket `{ type: "approve"|"reject", pipeline_id }`
 4. On approve → Magentic calls Ropex scoped drain and streams `agent_*` / `complete`
 
 Set `ROPEX_REQUIRE_APPROVAL=false` to drain immediately after plan (no HITL pause).
