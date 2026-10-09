@@ -1,5 +1,5 @@
 /**
- * WorkflowCanvas — ReactFlow visual graph of workflow steps.
+ * WorkflowCanvas — ReactFlow graph from Ropex pipeline stages.
  */
 
 import React, { useEffect, useMemo, useCallback } from 'react';
@@ -13,9 +13,13 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import WorkflowStepNode from './WorkflowStepNode';
+import PipelineBarrierNode from './PipelineBarrierNode';
 import { graphFromWorkflow } from '../../utils/workflowModel';
 
-const nodeTypes = { workflowStep: WorkflowStepNode };
+const nodeTypes = {
+  workflowStep: WorkflowStepNode,
+  pipelineBarrier: PipelineBarrierNode,
+};
 
 function WorkflowCanvasInner({
   workflow,
@@ -43,6 +47,7 @@ function WorkflowCanvasInner({
 
   const onNodeClick = useCallback(
     (_event, node) => {
+      if (node.type === 'pipelineBarrier') return;
       onSelectStep?.(node.id);
     },
     [onSelectStep]
@@ -52,16 +57,16 @@ function WorkflowCanvasInner({
     onSelectStep?.(null);
   }, [onSelectStep]);
 
-  if (!workflow?.steps?.length) {
+  if (!workflow?.steps?.length && !workflow?.stages?.length) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center">
         <div>
           <p className="font-display text-2xl text-slate-800 dark:text-slate-100 mb-2">
-            Workflow
+            Pipeline
           </p>
           <p className="text-[13px] text-slate-500 dark:text-slate-400 max-w-xs leading-relaxed">
-            Load a workflow or wait for Ropex to plan steps. In edit mode you can
-            add agents and shape the flow.
+            Chat to ask Ropex to plan stages and agents. The execution pipeline
+            will appear here from the YAML definition.
           </p>
         </div>
       </div>
@@ -95,6 +100,7 @@ function WorkflowCanvasInner({
         <MiniMap
           className="!bg-white/80 dark:!bg-slate-900/80 !border-slate-200 dark:!border-slate-700 !rounded-lg"
           nodeColor={(node) => {
+            if (node.type === 'pipelineBarrier') return '#64748b';
             const s = node.data?.status;
             if (s === 'complete') return '#14b8a6';
             if (s === 'running') return '#0ea5e9';

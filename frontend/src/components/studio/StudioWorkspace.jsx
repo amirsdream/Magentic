@@ -1,11 +1,10 @@
 /**
- * StudioWorkspace — workflow-first navigation:
- * 1) list of workflows
- * 2) open one → chat + visual flow + actions inside
+ * StudioWorkspace — chat-first home to create workflows,
+ * then open a pipeline (flow + chat + actions) from Ropex YAML.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import WorkflowList from './WorkflowList';
+import StudioHome from './StudioHome';
 import WorkflowDetail from './WorkflowDetail';
 import {
   workflowFromExecution,
@@ -21,7 +20,7 @@ function buildCatalog({ liveWorkflow, historyWorkflows, saved }) {
     items.push({
       ...liveWorkflow,
       _bucket: 'live',
-      name: liveWorkflow.name || 'Live run',
+      name: liveWorkflow.name || 'Live pipeline',
     });
   }
   historyWorkflows.forEach((w) => {
@@ -53,7 +52,7 @@ export default function StudioWorkspace({
   disabled,
   disabledMessage,
 }) {
-  const [view, setView] = useState('list'); // 'list' | 'detail'
+  const [view, setView] = useState('home'); // 'home' | 'detail'
   const [saved, setSaved] = useState(() => loadWorkflowLibrary());
   const [openWorkflow, setOpenWorkflow] = useState(null);
   const liveIdRef = useRef(null);
@@ -83,11 +82,10 @@ export default function StudioWorkspace({
     [liveWorkflow, historyWorkflows, saved]
   );
 
-  // When a new live pipeline appears, open it automatically
+  // New live pipeline → open detail automatically
   useEffect(() => {
     if (!liveWorkflow) return;
     if (liveWorkflow.id === liveIdRef.current) {
-      // Keep open workflow synced with live status if we're inside it
       if (view === 'detail' && openWorkflow?.id === liveWorkflow.id) {
         setOpenWorkflow(mergeLiveIntoWorkflow(liveWorkflow, currentExecution));
       }
@@ -98,7 +96,6 @@ export default function StudioWorkspace({
     setView('detail');
   }, [liveWorkflow, currentExecution, view, openWorkflow?.id]);
 
-  // Demo modes: land inside the demo workflow
   useEffect(() => {
     if (demoEnteredRef.current) return;
     if (typeof window === 'undefined') return;
@@ -123,16 +120,14 @@ export default function StudioWorkspace({
   );
 
   const handleCreate = useCallback(() => {
-    const wf = emptyWorkflow('Untitled workflow');
-    const next = saveWorkflowToLibrary(wf);
-    setSaved(next);
+    const wf = emptyWorkflow('Untitled pipeline');
+    setSaved(saveWorkflowToLibrary(wf));
     setOpenWorkflow(wf);
     setView('detail');
   }, []);
 
   const handleBack = useCallback(() => {
-    setView('list');
-    // Refresh library in case detail saved
+    setView('home');
     setSaved(loadWorkflowLibrary());
   }, []);
 
@@ -140,6 +135,14 @@ export default function StudioWorkspace({
     setSaved(library);
     if (draft) setOpenWorkflow(draft);
   }, []);
+
+  /** From home chat: send creates a live pipeline; we auto-enter on plan. */
+  const handleHomeSend = useCallback(
+    async (content) => {
+      await onSend?.(content);
+    },
+    [onSend]
+  );
 
   if (view === 'detail' && openWorkflow) {
     return (
@@ -172,10 +175,16 @@ export default function StudioWorkspace({
   }
 
   return (
-    <WorkflowList
+    <StudioHome
       workflows={catalog}
       onOpen={handleOpen}
       onCreate={handleCreate}
+      onSend={handleHomeSend}
+      onStop={onStop}
+      isConnected={isConnected}
+      isProcessing={isProcessing}
+      disabled={disabled}
+      disabledMessage={disabledMessage}
     />
   );
 }

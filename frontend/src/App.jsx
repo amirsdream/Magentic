@@ -146,27 +146,33 @@ function App() {
         stage: 'awaiting_approval',
         stageMessage: 'Waiting for human approval…',
         pipelineId: 'pipe-demo-hitl',
-        workflowYaml: `workflow:
+        workflowYaml: `pipeline:
   id: pipe-demo-hitl
   description: Research and synthesize an answer
   prompt: What is Magentic studio?
-  stages: 3
-  steps:
-    - id: coordinator_0
-      role: coordinator
-      task: Plan the approach
+  stage_count: 3
+  stages:
+    - id: stage_0
       layer: 0
-      status: pending
-    - id: researcher_1
-      role: researcher
-      task: Gather sources
+      agents:
+        - id: coordinator_0
+          role: coordinator
+          task: Plan the approach
+          status: pending
+    - id: stage_1
       layer: 1
-      status: pending
-    - id: synthesizer_2
-      role: synthesizer
-      task: Write the final answer
+      agents:
+        - id: researcher_1
+          role: researcher
+          task: Gather sources
+          status: pending
+    - id: stage_2
       layer: 2
-      status: pending
+      agents:
+        - id: synthesizer_2
+          role: synthesizer
+          task: Write the final answer
+          status: pending
 `,
         plan: {
           description: 'Research and synthesize an answer',
@@ -193,7 +199,7 @@ function App() {
           description: 'Research and synthesize an answer',
           workflow_yaml: '',
           stages: 3,
-          message: 'Review the visual workflow and step actions, then approve to run.',
+          message: 'Review the pipeline stages and agent actions, then approve to run.',
         },
       };
     }
@@ -201,9 +207,38 @@ function App() {
       return {
         stage: 'executing',
         stageMessage: 'Agents running',
+        pipelineId: 'pipe-demo-loop',
+        workflowYaml: `pipeline:
+  id: pipe-demo-loop
+  description: Research and synthesize an answer
+  stage_count: 3
+  stages:
+    - id: stage_0
+      layer: 0
+      agents:
+        - id: coordinator_0
+          role: coordinator
+          task: Plan the approach
+          status: complete
+    - id: stage_1
+      layer: 1
+      agents:
+        - id: researcher_1
+          role: researcher
+          task: Gather sources
+          status: running
+    - id: stage_2
+      layer: 2
+      agents:
+        - id: synthesizer_2
+          role: synthesizer
+          task: Write the final answer
+          status: pending
+`,
         plan: {
           description: 'Research and synthesize an answer',
           total_agents: 3,
+          stages: 3,
           agents: [
             { agent_id: 'coordinator_0', role: 'coordinator', task: 'Plan the approach', layer: 0 },
             { agent_id: 'researcher_1', role: 'researcher', task: 'Gather sources', layer: 1 },

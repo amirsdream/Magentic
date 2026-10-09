@@ -198,35 +198,50 @@ def agents_to_workflow_yaml(
     *,
     prompt: Optional[str] = None,
 ) -> str:
-    """Serialize a Ropex plan into a human-readable workflow YAML document."""
+    """Serialize a Ropex plan into a pipeline YAML (stages → agents).
+
+    Shape mirrors Ropex planning: layered stages with agents per stage,
+    suitable for Magentic studio visualization and edit/export.
+    """
     agents = plan_data.get("agents") if isinstance(plan_data.get("agents"), list) else []
-    steps: List[Dict[str, Any]] = []
+    by_layer: Dict[int, List[Dict[str, Any]]] = {}
     for index, agent in enumerate(agents):
         if not isinstance(agent, dict):
             continue
+        layer = int(agent.get("layer") if agent.get("layer") is not None else index)
         step: Dict[str, Any] = {
-            "id": agent.get("agent_id") or f"step_{index + 1}",
+            "id": agent.get("agent_id") or f"agent_{index + 1}",
             "role": agent.get("role") or f"agent_{index + 1}",
             "status": agent.get("status") or "pending",
         }
         if agent.get("task"):
             step["task"] = agent["task"]
-        if agent.get("layer") is not None:
-            step["layer"] = agent["layer"]
-        steps.append(step)
+        by_layer.setdefault(layer, []).append(step)
 
+    stages: List[Dict[str, Any]] = []
+    for layer in sorted(by_layer.keys()):
+        stages.append(
+            {
+                "id": f"stage_{layer}",
+                "layer": layer,
+                "agents": by_layer[layer],
+            }
+        )
+
+    # Fall back to empty stage list with declared stage count from plan
+    stage_count = plan_data.get("stages") or len(stages)
     doc: Dict[str, Any] = {
-        "workflow": {
+        "pipeline": {
             "id": pipeline_id,
             "description": plan_data.get("description")
             or plan_data.get("message")
             or "Ropex pipeline",
-            "stages": plan_data.get("stages") or len(steps),
-            "steps": steps,
+            "stage_count": stage_count,
+            "stages": stages,
         }
     }
     if prompt:
-        doc["workflow"]["prompt"] = prompt
+        doc["pipeline"]["prompt"] = prompt
     return yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False)
 
 

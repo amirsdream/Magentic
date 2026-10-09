@@ -520,7 +520,8 @@ class TestWorkflowYaml:
             },
             prompt="What is Ropex?",
         )
-        assert "workflow:" in yaml_text
+        assert "pipeline:" in yaml_text
+        assert "stages:" in yaml_text
         assert "pipe-1" in yaml_text
         assert "researcher" in yaml_text
         assert "Gather sources" in yaml_text

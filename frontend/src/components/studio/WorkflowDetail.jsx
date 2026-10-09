@@ -20,7 +20,13 @@ import EnhancedChatInput from '../EnhancedChatInput';
 import HitlApprovalCard from './HitlApprovalCard';
 import WorkflowCanvas from './WorkflowCanvas';
 import AgentActionFlow from './AgentActionFlow';
-import { createStep, saveWorkflowToLibrary } from '../../utils/workflowModel';
+import PipelineStrip from './PipelineStrip';
+import {
+  createStep,
+  saveWorkflowToLibrary,
+  stagesFromSteps,
+  toRopexPipelineYaml,
+} from '../../utils/workflowModel';
 
 const ROLE_OPTIONS = [
   'coordinator',
@@ -88,51 +94,66 @@ export default function WorkflowDetail({
   const awaitingApproval =
     currentExecution?.stage === 'awaiting_approval' || Boolean(approval?.pipeline_id);
 
+  const recompute = useCallback((steps, extra = {}) => {
+    const stages = stagesFromSteps(steps);
+    return {
+      steps,
+      stages,
+      stage_count: stages.length,
+      definitionYaml: '',
+      updatedAt: new Date().toISOString(),
+      ...extra,
+    };
+  }, []);
+
   const updateStep = useCallback((stepId, patch) => {
     setDraft((prev) => {
       if (!prev) return prev;
-      return {
-        ...prev,
-        steps: prev.steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s)),
-        updatedAt: new Date().toISOString(),
-      };
+      const steps = prev.steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s));
+      return { ...prev, ...recompute(steps) };
     });
-  }, []);
+  }, [recompute]);
 
   const addStep = useCallback(() => {
     setDraft((prev) => {
       if (!prev) return prev;
-      const step = createStep(prev.id, prev.steps.length);
+      const layer = prev.stages?.length ? prev.stages.length - 1 : 0;
+      const step = createStep(prev.id, layer);
       setSelectedStepId(step.id);
       setEditMode(true);
-      return {
-        ...prev,
-        steps: [...prev.steps, step],
-        updatedAt: new Date().toISOString(),
-      };
+      return { ...prev, ...recompute([...prev.steps, step]) };
     });
-  }, []);
+  }, [recompute]);
 
   const removeStep = useCallback(
     (stepId) => {
       setDraft((prev) => {
         if (!prev || prev.steps.length <= 1) return prev;
-        return {
-          ...prev,
-          steps: prev.steps.filter((s) => s.id !== stepId),
-          updatedAt: new Date().toISOString(),
-        };
+        const steps = prev.steps.filter((s) => s.id !== stepId);
+        return { ...prev, ...recompute(steps) };
       });
       if (selectedStepId === stepId) setSelectedStepId(null);
     },
-    [selectedStepId]
+    [selectedStepId, recompute]
   );
 
   const handleSave = useCallback(() => {
     if (!draft) return;
-    const next = saveWorkflowToLibrary(draft);
-    onSaved?.(next, draft);
+    const withYaml = {
+      ...draft,
+      definitionYaml: toRopexPipelineYaml(draft),
+    };
+    const next = saveWorkflowToLibrary(withYaml);
+    onSaved?.(next, withYaml);
   }, [draft, onSaved]);
+
+  const handleSelectStage = useCallback(
+    (stage) => {
+      const first = stage?.agents?.[0];
+      if (first?.id) setSelectedStepId(first.id);
+    },
+    []
+  );
 
   const stageLabel = (draft?.stage || 'idle').replace(/_/g, ' ');
 
@@ -146,15 +167,19 @@ export default function WorkflowDetail({
           className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Workflows
+          Home
         </button>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[14px] font-medium text-slate-900 dark:text-white">
-            {draft?.name || 'Workflow'}
+            {draft?.name || 'Pipeline'}
           </p>
           <p className="truncate text-[11px] capitalize text-slate-500 dark:text-slate-400">
             {stageLabel}
-            {draft?.steps?.length != null ? ` · ${draft.steps.length} steps` : ''}
+            {draft?.stages?.length != null
+              ? ` · ${draft.stages.length} stages`
+              : draft?.steps?.length != null
+                ? ` · ${draft.steps.length} agents`
+                : ''}
           </p>
         </div>
 
@@ -225,6 +250,11 @@ export default function WorkflowDetail({
             mobileTab === 'flow' ? 'flex' : 'hidden'
           } lg:flex`}
         >
+          <PipelineStrip
+            workflow={draft}
+            selectedStepId={selectedStepId}
+            onSelectStage={handleSelectStage}
+          />
           <div className="relative min-h-0 flex-1">
             <WorkflowCanvas
               workflow={draft}

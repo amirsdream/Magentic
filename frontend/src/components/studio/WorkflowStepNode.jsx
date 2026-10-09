@@ -79,7 +79,7 @@ function WorkflowStepNode({ data, selected }) {
             </p>
           ) : null}
           <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-400">
-            L{data.layer ?? 0}
+            {data.stageLabel || `Stage ${(data.layer ?? 0) + 1}`}
             {status === 'running' ? ' · working' : ''}
           </p>
         </div>
