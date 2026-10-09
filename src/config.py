@@ -130,6 +130,13 @@ class Config:
             "1",
             "yes",
         )
+        # Human-in-the-loop: pause after plan, wait for approve before drain.
+        # Defaults on when using Ropex so the studio can review YAML + steps.
+        _approval_env = os.getenv("ROPEX_REQUIRE_APPROVAL", "").strip().lower()
+        if _approval_env:
+            self.ropex_require_approval: bool = _approval_env in ("true", "1", "yes")
+        else:
+            self.ropex_require_approval = self.execution_engine == "ropex"
 
     def validate(self) -> tuple[bool, Optional[str]]:
         """Validate configuration values.

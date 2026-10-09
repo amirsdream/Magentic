@@ -97,13 +97,64 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         const stage = data.stage || data.data?.stage || prev.stage;
         const stageMessage =
           data.message || data.data?.message || prev.stageMessage;
+        const mappedStage =
+          stage === 'received' || stage === 'ropex_submit' || stage === 'ropex_accepted'
+            ? 'initializing'
+            : stage === 'awaiting_approval'
+              ? 'awaiting_approval'
+              : (stage || prev.stage);
         return {
           ...prev,
-          stage: stage === 'received' || stage === 'ropex_submit' || stage === 'ropex_accepted'
-            ? 'initializing'
-            : (stage || prev.stage),
+          stage: mappedStage,
           stageMessage,
           engine: data.data?.engine || prev.engine,
+          pipelineId: data.data?.pipeline_id || prev.pipelineId,
+          // Clear approval once drain starts after approve
+          approval:
+            mappedStage === 'executing' || mappedStage === 'complete'
+              ? null
+              : prev.approval,
+        };
+      });
+      break;
+
+    case WEBSOCKET_EVENTS.APPROVAL_REQUIRED:
+      setCurrentExecution((prev) => {
+        const agents = Array.isArray(data.data?.agents) ? data.data.agents : (prev?.agents || []);
+        const normalizedAgents = agents.map((agent) => ({
+          ...agent,
+          status: agent.status || AGENT_STATUS.PENDING,
+        }));
+        return {
+          ...prev,
+          stage: 'awaiting_approval',
+          isLoading: false,
+          stageMessage: data.data?.message || 'Waiting for human approval…',
+          pipelineId: data.data?.pipeline_id || prev?.pipelineId,
+          workflowYaml: data.data?.workflow_yaml || prev?.workflowYaml,
+          approval: {
+            pipeline_id: data.data?.pipeline_id,
+            agents: normalizedAgents,
+            description: data.data?.description,
+            workflow_yaml: data.data?.workflow_yaml || '',
+            stages: data.data?.stages,
+            prompt: data.data?.prompt,
+            message: data.data?.message,
+          },
+          plan: {
+            ...(prev?.plan || {}),
+            description: data.data?.description || prev?.plan?.description,
+            agents: normalizedAgents.length ? normalizedAgents : (prev?.plan?.agents || []),
+            stages: data.data?.stages ?? prev?.plan?.stages,
+            total_agents: normalizedAgents.length || prev?.plan?.total_agents,
+          },
+          agents: normalizedAgents.length
+            ? normalizedAgents.map((agent) => {
+                const existing = (prev?.agents || []).find((a) => a.agent_id === agent.agent_id);
+                return existing ? { ...existing, ...agent, status: existing.status || agent.status } : agent;
+              })
+            : prev?.agents,
+          engine: 'ropex',
         };
       });
       break;
@@ -561,6 +612,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
           stage: 'stopped',
           stageMessage: data.message || 'Execution stopped by user',
           agents: updatedAgents,
+          approval: null,
         };
       });
 

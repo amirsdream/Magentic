@@ -3,8 +3,8 @@
 Magentic uses **Ropex** as its execution engine when configured. The UI stays in Magentic; planning and stage runs happen in Ropex over HTTP + SSE.
 
 ```
-Magentic UI ──WebSocket──▶ Magentic API ──HTTP+SSE──▶ Ropex (:7780)
-                              AgentLoopBar ◀── plan / agent_* / complete
+Magentic Studio ──WebSocket──▶ Magentic API ──HTTP+SSE──▶ Ropex (:7780)
+  chat | YAML | steps | HITL ◀── plan / approval_required / agent_* / complete
 ```
 
 ## Quick start
@@ -23,9 +23,11 @@ ropex ui
 EXECUTION_ENGINE=ropex
 ROPEX_BASE_URL=http://127.0.0.1:7780
 ROPEX_ASYNC_DRAIN=true
+ROPEX_REQUIRE_APPROVAL=true
 ```
 
 If `ROPEX_BASE_URL` is set and `EXECUTION_ENGINE` is omitted, Magentic selects Ropex automatically.
+`ROPEX_REQUIRE_APPROVAL` defaults to on when using Ropex (pause after plan until the UI approves drain).
 
 3. Start Magentic:
 
@@ -33,7 +35,16 @@ If `ROPEX_BASE_URL` is set and `EXECUTION_ENGINE` is omitted, Magentic selects R
 ./magentic.sh start
 ```
 
-Open the UI — the header shows a **Ropex** badge when the API is using that engine.
+Open the UI — the header shows a **Ropex** badge and the studio panes (chat, workflow YAML, steps).
+
+## Studio + human-in-the-loop
+
+1. Submit a query → Ropex plans with `drain: false`
+2. Magentic emits `plan`, then `approval_required` with `workflow_yaml` + agents
+3. UI shows YAML + steps; user sends WebSocket `{ type: "approve"|"reject", pipeline_id }`
+4. On approve → Magentic calls Ropex scoped drain and streams `agent_*` / `complete`
+
+Set `ROPEX_REQUIRE_APPROVAL=false` to drain immediately after plan (no HITL pause).
 
 ## Contract
 
@@ -45,7 +56,7 @@ See [Ropex executor API](https://github.com/amirsdream/ropex/blob/main/docs/exec
 | `GET /api/v1/events?pipelineId=&format=ui` | SSE → Magentic WebSocket types |
 | `POST /api/v1/pipeline` `{ action: "drain", pipelineId }` | Scoped sequential drain |
 
-Event map: `plan`, `agent_start`, `agent_log`, `agent_complete`, `complete`, `error`, `stream_end`.
+Event map: `plan`, `approval_required` (Magentic), `agent_start`, `agent_log`, `agent_complete`, `complete`, `error`, `stream_end`.
 
 When `EXECUTION_ENGINE=ropex`, LangGraph is **not** initialized and is never used as a fallback.
 

@@ -23,6 +23,7 @@ services:
       - EXECUTION_ENGINE=${EXECUTION_ENGINE:-ropex}
       - ROPEX_BASE_URL=${ROPEX_BASE_URL:-http://host.docker.internal:7780}
       - ROPEX_ASYNC_DRAIN=${ROPEX_ASYNC_DRAIN:-true}
+      - ROPEX_REQUIRE_APPROVAL=${ROPEX_REQUIRE_APPROVAL:-true}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

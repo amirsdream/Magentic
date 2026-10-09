@@ -103,6 +103,7 @@ function ExecutionView({
   onRetry = null, // callback to retry execution with same query
   onPreviewArtifact = null, // callback to open artifact preview panel
   showDetails = true, // controlled by header toggle - true = show workflow, false = message only
+  hideLoop = false, // studio mode: steps live in the Steps rail
 }) {
   // Determine execution state
   const isStopped = execution?.stage === 'stopped';
@@ -186,8 +187,8 @@ function ExecutionView({
         isCompact ? 'rounded-xl' : 'rounded-2xl'
       } overflow-hidden ${isCompact ? '' : 'max-w-3xl'} shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur-sm`}
     >
-      {/* Agent loop — Copilot-style vertical progress */}
-      {showDetails && (
+      {/* Agent loop — Copilot-style vertical progress (hidden in studio; steps rail owns it) */}
+      {showDetails && !hideLoop && (
         <>
           <ExecutionStatusHeader
             execution={execution}
@@ -225,6 +226,10 @@ function ExecutionView({
             </AnimatePresence>
           )}
         </>
+      )}
+
+      {showDetails && hideLoop && isComplete && hasTokens && (
+        <TokenBreakdown tokenUsage={tokenUsage} costFormatted={costFormatted} />
       )}
 
       {(execution?.streamingContent || execution?.output) && (

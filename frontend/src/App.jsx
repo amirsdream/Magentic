@@ -1,6 +1,6 @@
 /**
- * Main App component - Magentic chat interface v3.0
- * Redesigned with animated UI and agent visualization
+ * Main App — Magentic studio workspace
+ * Chat + live YAML workflow + steps rail + human-in-the-loop
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -14,25 +14,22 @@ import {
   LoadingScreen,
   ProfileModal,
   Sidebar,
-  EnhancedChatInput,
   SettingsPanel,
   WorkflowVisualization,
   ArtifactPreviewPanel,
-  ChatArea,
+  StudioWorkspace,
 } from './components';
 import { useUIStore, useConnectionStore } from './store';
 
 function App() {
   const { user, isAuthenticated, isGuest, loading, updateProfile } = useAuth();
   
-  // Memoize user data to prevent unnecessary re-renders
   const stableUser = useMemo(() => ({
     username: user?.username,
     display_name: user?.display_name,
     avatar_emoji: user?.avatar_emoji,
   }), [user?.username, user?.display_name, user?.avatar_emoji]);
   
-  // Use chat hook for all chat state and logic
   const {
     messages,
     currentExecution,
@@ -45,10 +42,8 @@ function App() {
     sendChatMessage,
   } = useChat(user, isAuthenticated);
   
-  // Theme sync hook
   useThemeSync(user, isAuthenticated, isGuest, updateProfile);
   
-  // UI stores
   const {
     sidebarOpen,
     settingsOpen,
@@ -62,15 +57,14 @@ function App() {
   
   const { setConnected } = useConnectionStore();
   
-  // Local UI state
   const [showProfile, setShowProfile] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [viewingExecution, setViewingExecution] = useState(null);
   const [previewArtifact, setPreviewArtifact] = useState(null);
   const [executionEngine, setExecutionEngine] = useState(null);
   const [ropexStatus, setRopexStatus] = useState(null);
+  const [requireApproval, setRequireApproval] = useState(null);
 
-  // Probe API health for execution-engine badge (Ropex vs LangGraph)
   useEffect(() => {
     let cancelled = false;
     const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -82,6 +76,9 @@ function App() {
         if (cancelled) return;
         setExecutionEngine(body.execution_engine || null);
         setRopexStatus(body.ropex?.status || null);
+        if (typeof body.ropex_require_approval === 'boolean') {
+          setRequireApproval(body.ropex_require_approval);
+        }
       } catch {
         /* API may still be starting */
       }
@@ -94,19 +91,16 @@ function App() {
     };
   }, []);
 
-  // WebSocket connection
   const { isConnected, sendMessage } = useWebSocket(
     user,
     isAuthenticated,
     handleWebSocketMessage
   );
 
-  // Sync connection state
   useEffect(() => {
     setConnected(isConnected);
   }, [isConnected, setConnected]);
 
-  // Show login modal if not authenticated
   useEffect(() => {
     if (!loading && !isAuthenticated) {
       const timer = setTimeout(() => setShowLogin(true), 100);
@@ -116,18 +110,25 @@ function App() {
     }
   }, [loading, isAuthenticated]);
 
-  // Handle send message
   const handleSend = useCallback(async (content) => {
     if (!content.trim() || !isConnected) return;
     await sendChatMessage(content, sendMessage);
   }, [isConnected, sendChatMessage, sendMessage]);
 
-  // Handle stop execution
   const handleStop = useCallback(() => {
     sendMessage({ type: 'stop' });
   }, [sendMessage]);
 
-  // Stable callbacks
+  const handleApprove = useCallback((pipelineId) => {
+    if (!pipelineId) return;
+    sendMessage({ type: 'approve', pipeline_id: pipelineId });
+  }, [sendMessage]);
+
+  const handleReject = useCallback((pipelineId) => {
+    if (!pipelineId) return;
+    sendMessage({ type: 'reject', pipeline_id: pipelineId });
+  }, [sendMessage]);
+
   const openProfile = useCallback(() => setShowProfile(true), []);
   const closeProfile = useCallback(() => setShowProfile(false), []);
   const closeLogin = useCallback(() => setShowLogin(false), []);
@@ -135,19 +136,17 @@ function App() {
   const closeViewingExecution = useCallback(() => setViewingExecution(null), []);
   const closeArtifactPreview = useCallback(() => setPreviewArtifact(null), []);
 
-  // Determine processing state
   const isActivelyExecuting = currentExecution && 
     currentExecution.stage !== 'complete' && 
     currentExecution.stage !== 'stopped';
   const isProcessing = isActivelyExecuting || 
     (executingConversationId && executingConversationId !== activeConversationId);
   
-  // Loading state
   const loadingMessage = loading 
     ? 'Authenticating...' 
     : isLoadingChats 
       ? 'Loading your conversations...' 
-      : 'Preparing workspace...';
+      : 'Preparing studio...';
   
   const showLoadingScreen = loading || (isAuthenticated && !isInitialized);
   
@@ -156,13 +155,13 @@ function App() {
   }
 
   return (
-    <div className="relative flex h-screen overflow-hidden transition-colors duration-200 bg-[#f4f7fb] dark:bg-slate-950">
+    <div className="relative flex h-screen overflow-hidden transition-colors duration-200 bg-[#eef3f8] dark:bg-slate-950">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-70 dark:opacity-40"
+        className="pointer-events-none absolute inset-0 opacity-80 dark:opacity-45"
         style={{
           background:
-            'radial-gradient(ellipse 70% 50% at 10% 0%, rgba(14,165,233,0.10), transparent 55%), radial-gradient(ellipse 50% 40% at 90% 10%, rgba(20,184,166,0.08), transparent 50%)',
+            'radial-gradient(ellipse 65% 45% at 8% 0%, rgba(14,165,233,0.12), transparent 55%), radial-gradient(ellipse 45% 35% at 92% 8%, rgba(20,184,166,0.10), transparent 50%), radial-gradient(ellipse 40% 30% at 50% 100%, rgba(14,165,233,0.06), transparent 50%)',
         }}
       />
       <Toaster 
@@ -195,30 +194,31 @@ function App() {
           hasActiveExecution={!!currentExecution && currentExecution.stage !== 'complete' && currentExecution.stage !== 'stopped'}
           executionEngine={executionEngine}
           ropexStatus={ropexStatus}
+          requireApproval={requireApproval}
+          awaitingApproval={currentExecution?.stage === 'awaiting_approval'}
         />
 
         <div className="flex-1 flex overflow-hidden">
           <motion.div 
-            className="flex-1 flex flex-col overflow-hidden"
+            className="flex-1 flex flex-col overflow-hidden min-w-0"
             layout
             transition={{ duration: 0.3 }}
           >
-            <ChatArea
+            <StudioWorkspace
               messages={messages}
               currentExecution={currentExecution}
               onRetry={handleSend}
               onPreviewArtifact={setPreviewArtifact}
               showExecutionDetails={showExecutionDetails}
-            />
-
-            <EnhancedChatInput
               onSend={handleSend}
               onStop={handleStop}
+              onApprove={handleApprove}
+              onReject={handleReject}
               isConnected={isConnected}
+              isProcessing={isProcessing}
               disabled={Boolean(
                 executingConversationId && executingConversationId !== activeConversationId
               )}
-              isProcessing={isProcessing}
               showSuggestions={messages.length === 0 && !isProcessing}
               disabledMessage={
                 executingConversationId && executingConversationId !== activeConversationId
@@ -235,7 +235,7 @@ function App() {
                 animate={{ width: 450, opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
                 transition={{ duration: 0.3, ease: 'easeInOut' }}
-                className="h-full border-l border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-gray-900/50 overflow-hidden flex flex-col"
+                className="hidden xl:flex h-full border-l border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-gray-900/50 overflow-hidden flex-col"
               >
                 <WorkflowVisualization 
                   execution={currentExecution} 

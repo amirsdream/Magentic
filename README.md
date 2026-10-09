@@ -106,7 +106,10 @@ ENABLE_METRICS=true              # Prometheus metrics
 # Execution engine (Ropex recommended — see docs/ROPEX.md)
 EXECUTION_ENGINE=ropex
 ROPEX_BASE_URL=http://127.0.0.1:7780
+ROPEX_REQUIRE_APPROVAL=true
 ```
+
+Studio UI: chat + live workflow YAML + steps rail, with human-in-the-loop approve-before-drain when `ROPEX_REQUIRE_APPROVAL=true`.
 
 ## Agent Roles
 

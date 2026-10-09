@@ -59,6 +59,7 @@ const ChatArea = memo(function ChatArea({
   onRetry,
   onPreviewArtifact,
   showExecutionDetails = true,
+  studioMode = false,
 }) {
   const containerRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -139,7 +140,9 @@ const ChatArea = memo(function ChatArea({
       onScroll={handleScroll}
       className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-5 scrollbar-hide"
     >
-      {messages.length === 0 && !currentExecution && !showLoopDemo && <EmptyState />}
+      {messages.length === 0 && !currentExecution && !showLoopDemo && (
+        <EmptyState studioMode={studioMode} />
+      )}
 
       {showLoopDemo && (
         <div className="max-w-3xl mx-auto w-full space-y-3">
@@ -151,6 +154,7 @@ const ChatArea = memo(function ChatArea({
             variant="live"
             showAvatar={true}
             showDetails={showExecutionDetails}
+            hideLoop={studioMode}
           />
         </div>
       )}
@@ -182,6 +186,7 @@ const ChatArea = memo(function ChatArea({
               onRetry={onRetry}
               onPreviewArtifact={onPreviewArtifact}
               showDetails={showExecutionDetails}
+              hideLoop={studioMode}
             />
           )}
         </React.Fragment>
@@ -196,6 +201,7 @@ const ChatArea = memo(function ChatArea({
           onRetry={onRetry}
           onPreviewArtifact={onPreviewArtifact}
           showDetails={showExecutionDetails}
+          hideLoop={studioMode}
         />
       )}
 
