@@ -209,9 +209,11 @@ export function AuthProvider({ children }) {
       return { success: true, user: data.user };
     } catch (error) {
       // Fallback to local guest if API fails
+      const guestId = `guest_${Date.now()}`;
       const guestUser = {
         id: 0,
-        email: `guest_${Date.now()}@local`,
+        username: guestId,
+        email: `${guestId}@local`,
         display_name: 'Guest User',
         avatar_emoji: '👻',
         is_guest: true,

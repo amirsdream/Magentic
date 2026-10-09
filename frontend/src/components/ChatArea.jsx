@@ -53,6 +53,62 @@ const DEMO_LOOP_EXECUTION = {
   ],
 };
 
+/** Demo for `?demo=hitl` — approval gate + YAML + steps */
+const DEMO_HITL_EXECUTION = {
+  stage: 'awaiting_approval',
+  stageMessage: 'Waiting for human approval…',
+  pipelineId: 'pipe-demo-hitl',
+  workflowYaml: `workflow:
+  id: pipe-demo-hitl
+  description: Research and synthesize an answer
+  prompt: What is Magentic studio?
+  stages: 3
+  steps:
+    - id: coordinator_0
+      role: coordinator
+      task: Plan the approach
+      layer: 0
+      status: pending
+    - id: researcher_1
+      role: researcher
+      task: Gather sources
+      layer: 1
+      status: pending
+    - id: synthesizer_2
+      role: synthesizer
+      task: Write the final answer
+      layer: 2
+      status: pending
+`,
+  plan: {
+    description: 'Research and synthesize an answer',
+    total_agents: 3,
+    stages: 3,
+    agents: [
+      { agent_id: 'coordinator_0', role: 'coordinator', task: 'Plan the approach', layer: 0, status: 'pending' },
+      { agent_id: 'researcher_1', role: 'researcher', task: 'Gather sources', layer: 1, status: 'pending' },
+      { agent_id: 'synthesizer_2', role: 'synthesizer', task: 'Write the final answer', layer: 2, status: 'pending' },
+    ],
+  },
+  agents: [
+    { agent_id: 'coordinator_0', role: 'coordinator', task: 'Plan the approach', layer: 0, status: 'pending' },
+    { agent_id: 'researcher_1', role: 'researcher', task: 'Gather sources', layer: 1, status: 'pending' },
+    { agent_id: 'synthesizer_2', role: 'synthesizer', task: 'Write the final answer', layer: 2, status: 'pending' },
+  ],
+  approval: {
+    pipeline_id: 'pipe-demo-hitl',
+    agents: [
+      { agent_id: 'coordinator_0', role: 'coordinator', task: 'Plan the approach', status: 'pending' },
+      { agent_id: 'researcher_1', role: 'researcher', task: 'Gather sources', status: 'pending' },
+      { agent_id: 'synthesizer_2', role: 'synthesizer', task: 'Write the final answer', status: 'pending' },
+    ],
+    description: 'Research and synthesize an answer',
+    workflow_yaml: '',
+    stages: 3,
+    message: 'Review the workflow YAML and steps, then approve to run.',
+  },
+};
+
 const ChatArea = memo(function ChatArea({
   messages,
   currentExecution,
@@ -128,11 +184,19 @@ const ChatArea = memo(function ChatArea({
   // Check if we have current execution that's not yet in message pairs
   const lastPairHasNoAssistant = messagePairs.length > 0 && !messagePairs[messagePairs.length - 1].assistant;
   const showCurrentExecution = currentExecution && (lastPairHasNoAssistant || messagePairs.length === 0);
+  const demoParam =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('demo')
+      : null;
   const showLoopDemo =
-    typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).get('demo') === 'loop' &&
-    messages.length === 0 &&
-    !currentExecution;
+    demoParam === 'loop' && messages.length === 0 && !currentExecution;
+  const showHitlDemo =
+    demoParam === 'hitl' && messages.length === 0 && !currentExecution;
+  const demoExecution = showHitlDemo
+    ? DEMO_HITL_EXECUTION
+    : showLoopDemo
+      ? DEMO_LOOP_EXECUTION
+      : null;
 
   return (
     <div 
@@ -140,17 +204,17 @@ const ChatArea = memo(function ChatArea({
       onScroll={handleScroll}
       className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-5 scrollbar-hide"
     >
-      {messages.length === 0 && !currentExecution && !showLoopDemo && (
+      {messages.length === 0 && !currentExecution && !showLoopDemo && !showHitlDemo && (
         <EmptyState studioMode={studioMode} />
       )}
 
-      {showLoopDemo && (
+      {(showLoopDemo || showHitlDemo) && (
         <div className="max-w-3xl mx-auto w-full space-y-3">
           <p className="text-[13px] text-slate-500 dark:text-slate-400 px-1">
-            Demo · Copilot-style agent loop
+            {showHitlDemo ? 'Demo · Human-in-the-loop approval' : 'Demo · Copilot-style agent loop'}
           </p>
           <ExecutionView
-            execution={DEMO_LOOP_EXECUTION}
+            execution={demoExecution}
             variant="live"
             showAvatar={true}
             showDetails={showExecutionDetails}

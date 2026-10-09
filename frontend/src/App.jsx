@@ -136,6 +136,115 @@ function App() {
   const closeViewingExecution = useCallback(() => setViewingExecution(null), []);
   const closeArtifactPreview = useCallback(() => setPreviewArtifact(null), []);
 
+  // Demo overrides for studio panes (`?demo=hitl` / `?demo=loop`)
+  const studioExecution = useMemo(() => {
+    if (currentExecution) return currentExecution;
+    if (typeof window === 'undefined') return null;
+    const demo = new URLSearchParams(window.location.search).get('demo');
+    if (demo === 'hitl') {
+      return {
+        stage: 'awaiting_approval',
+        stageMessage: 'Waiting for human approval…',
+        pipelineId: 'pipe-demo-hitl',
+        workflowYaml: `workflow:
+  id: pipe-demo-hitl
+  description: Research and synthesize an answer
+  prompt: What is Magentic studio?
+  stages: 3
+  steps:
+    - id: coordinator_0
+      role: coordinator
+      task: Plan the approach
+      layer: 0
+      status: pending
+    - id: researcher_1
+      role: researcher
+      task: Gather sources
+      layer: 1
+      status: pending
+    - id: synthesizer_2
+      role: synthesizer
+      task: Write the final answer
+      layer: 2
+      status: pending
+`,
+        plan: {
+          description: 'Research and synthesize an answer',
+          total_agents: 3,
+          stages: 3,
+          agents: [
+            { agent_id: 'coordinator_0', role: 'coordinator', task: 'Plan the approach', layer: 0, status: 'pending' },
+            { agent_id: 'researcher_1', role: 'researcher', task: 'Gather sources', layer: 1, status: 'pending' },
+            { agent_id: 'synthesizer_2', role: 'synthesizer', task: 'Write the final answer', layer: 2, status: 'pending' },
+          ],
+        },
+        agents: [
+          { agent_id: 'coordinator_0', role: 'coordinator', task: 'Plan the approach', layer: 0, status: 'pending' },
+          { agent_id: 'researcher_1', role: 'researcher', task: 'Gather sources', layer: 1, status: 'pending' },
+          { agent_id: 'synthesizer_2', role: 'synthesizer', task: 'Write the final answer', layer: 2, status: 'pending' },
+        ],
+        approval: {
+          pipeline_id: 'pipe-demo-hitl',
+          agents: [
+            { agent_id: 'coordinator_0', role: 'coordinator', task: 'Plan the approach', status: 'pending' },
+            { agent_id: 'researcher_1', role: 'researcher', task: 'Gather sources', status: 'pending' },
+            { agent_id: 'synthesizer_2', role: 'synthesizer', task: 'Write the final answer', status: 'pending' },
+          ],
+          description: 'Research and synthesize an answer',
+          workflow_yaml: '',
+          stages: 3,
+          message: 'Review the workflow YAML and steps, then approve to run.',
+        },
+      };
+    }
+    if (demo === 'loop') {
+      return {
+        stage: 'executing',
+        stageMessage: 'Agents running',
+        plan: {
+          description: 'Research and synthesize an answer',
+          total_agents: 3,
+          agents: [
+            { agent_id: 'coordinator_0', role: 'coordinator', task: 'Plan the approach', layer: 0 },
+            { agent_id: 'researcher_1', role: 'researcher', task: 'Gather sources', layer: 1 },
+            { agent_id: 'synthesizer_2', role: 'synthesizer', task: 'Write the final answer', layer: 2 },
+          ],
+        },
+        agents: [
+          {
+            agent_id: 'coordinator_0',
+            role: 'coordinator',
+            task: 'Plan the approach',
+            layer: 0,
+            status: 'complete',
+            output: 'Deploy researcher → synthesizer.',
+            logs: [{ type: 'thinking', content: 'Breaking the query into research + synthesis.' }],
+          },
+          {
+            agent_id: 'researcher_1',
+            role: 'researcher',
+            task: 'Gather sources',
+            layer: 1,
+            status: 'running',
+            logs: [
+              { type: 'thought', content: 'Searching recent docs…' },
+              { type: 'observation', content: 'Found 4 relevant sources.' },
+            ],
+            tool_calls: [{ name: 'web_search' }],
+          },
+          {
+            agent_id: 'synthesizer_2',
+            role: 'synthesizer',
+            task: 'Write the final answer',
+            layer: 2,
+            status: 'pending',
+          },
+        ],
+      };
+    }
+    return null;
+  }, [currentExecution]);
+
   const isActivelyExecuting = currentExecution && 
     currentExecution.stage !== 'complete' && 
     currentExecution.stage !== 'stopped';
@@ -195,7 +304,7 @@ function App() {
           executionEngine={executionEngine}
           ropexStatus={ropexStatus}
           requireApproval={requireApproval}
-          awaitingApproval={currentExecution?.stage === 'awaiting_approval'}
+          awaitingApproval={studioExecution?.stage === 'awaiting_approval'}
         />
 
         <div className="flex-1 flex overflow-hidden">
@@ -206,7 +315,7 @@ function App() {
           >
             <StudioWorkspace
               messages={messages}
-              currentExecution={currentExecution}
+              currentExecution={studioExecution}
               onRetry={handleSend}
               onPreviewArtifact={setPreviewArtifact}
               showExecutionDetails={showExecutionDetails}
@@ -219,7 +328,7 @@ function App() {
               disabled={Boolean(
                 executingConversationId && executingConversationId !== activeConversationId
               )}
-              showSuggestions={messages.length === 0 && !isProcessing}
+              showSuggestions={false}
               disabledMessage={
                 executingConversationId && executingConversationId !== activeConversationId
                   ? 'A query is running in another chat...'
