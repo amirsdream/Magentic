@@ -7,6 +7,52 @@ import EmptyState from './EmptyState';
 import MessageBubble from './MessageBubble';
 import ExecutionView from './ExecutionView';
 
+/** Demo execution for `?demo=loop` — showcases Copilot-style agent loop bar */
+const DEMO_LOOP_EXECUTION = {
+  stage: 'executing',
+  stageMessage: 'Agents running',
+  plan: {
+    description: 'Research and synthesize an answer',
+    total_agents: 3,
+    total_layers: 3,
+    agents: [
+      { agent_id: 'coordinator_0', role: 'coordinator', task: 'Plan the approach', layer: 0 },
+      { agent_id: 'researcher_1', role: 'researcher', task: 'Gather sources', layer: 1 },
+      { agent_id: 'synthesizer_2', role: 'synthesizer', task: 'Write the final answer', layer: 2 },
+    ],
+  },
+  agents: [
+    {
+      agent_id: 'coordinator_0',
+      role: 'coordinator',
+      task: 'Plan the approach',
+      layer: 0,
+      status: 'complete',
+      output: 'Deploy researcher → synthesizer.',
+      logs: [{ type: 'thinking', content: 'Breaking the query into research + synthesis.' }],
+    },
+    {
+      agent_id: 'researcher_1',
+      role: 'researcher',
+      task: 'Gather sources',
+      layer: 1,
+      status: 'running',
+      logs: [
+        { type: 'thought', content: 'Searching recent docs…' },
+        { type: 'observation', content: 'Found 4 relevant sources.' },
+      ],
+      tool_calls: [{ name: 'web_search' }],
+    },
+    {
+      agent_id: 'synthesizer_2',
+      role: 'synthesizer',
+      task: 'Write the final answer',
+      layer: 2,
+      status: 'pending',
+    },
+  ],
+};
+
 const ChatArea = memo(function ChatArea({
   messages,
   currentExecution,
@@ -81,14 +127,33 @@ const ChatArea = memo(function ChatArea({
   // Check if we have current execution that's not yet in message pairs
   const lastPairHasNoAssistant = messagePairs.length > 0 && !messagePairs[messagePairs.length - 1].assistant;
   const showCurrentExecution = currentExecution && (lastPairHasNoAssistant || messagePairs.length === 0);
+  const showLoopDemo =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('demo') === 'loop' &&
+    messages.length === 0 &&
+    !currentExecution;
 
   return (
     <div 
       ref={containerRef}
       onScroll={handleScroll}
-      className="flex-1 overflow-y-auto px-6 py-4 space-y-4 scrollbar-hide"
+      className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-5 scrollbar-hide"
     >
-      {messages.length === 0 && !currentExecution && <EmptyState />}
+      {messages.length === 0 && !currentExecution && !showLoopDemo && <EmptyState />}
+
+      {showLoopDemo && (
+        <div className="max-w-3xl mx-auto w-full space-y-3">
+          <p className="text-[13px] text-slate-500 dark:text-slate-400 px-1">
+            Demo · Copilot-style agent loop
+          </p>
+          <ExecutionView
+            execution={DEMO_LOOP_EXECUTION}
+            variant="live"
+            showAvatar={true}
+            showDetails={showExecutionDetails}
+          />
+        </div>
+      )}
 
       {/* Render user messages paired with their assistant execution */}
       {messagePairs.map(({ user, assistant }, index) => (
