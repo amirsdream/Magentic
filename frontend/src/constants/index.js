@@ -12,6 +12,7 @@ export const WEBSOCKET_EVENTS = {
   STAGE: 'stage',
   THINKING: 'thinking',  // Stream of thinking content from reasoning models
   PLAN: 'plan',
+  APPROVAL_REQUIRED: 'approval_required',
   AGENT_START: 'agent_start',
   AGENT_LOG: 'agent_log',
   AGENT_COMPLETE: 'agent_complete',

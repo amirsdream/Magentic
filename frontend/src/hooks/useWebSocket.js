@@ -91,7 +91,72 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
 
   switch (data.type) {
     case WEBSOCKET_EVENTS.STATUS:
-      // Initial acknowledgment - no action needed
+      // Ropex / API status — keep loop UI message in sync
+      setCurrentExecution((prev) => {
+        if (!prev) return prev;
+        const stage = data.stage || data.data?.stage || prev.stage;
+        const stageMessage =
+          data.message || data.data?.message || prev.stageMessage;
+        const mappedStage =
+          stage === 'received' || stage === 'ropex_submit' || stage === 'ropex_accepted'
+            ? 'initializing'
+            : stage === 'awaiting_approval'
+              ? 'awaiting_approval'
+              : (stage || prev.stage);
+        return {
+          ...prev,
+          stage: mappedStage,
+          stageMessage,
+          engine: data.data?.engine || prev.engine,
+          pipelineId: data.data?.pipeline_id || prev.pipelineId,
+          // Clear approval once drain starts after approve
+          approval:
+            mappedStage === 'executing' || mappedStage === 'complete'
+              ? null
+              : prev.approval,
+        };
+      });
+      break;
+
+    case WEBSOCKET_EVENTS.APPROVAL_REQUIRED:
+      setCurrentExecution((prev) => {
+        const agents = Array.isArray(data.data?.agents) ? data.data.agents : (prev?.agents || []);
+        const normalizedAgents = agents.map((agent) => ({
+          ...agent,
+          status: agent.status || AGENT_STATUS.PENDING,
+        }));
+        return {
+          ...prev,
+          stage: 'awaiting_approval',
+          isLoading: false,
+          stageMessage: data.data?.message || 'Waiting for human approval…',
+          pipelineId: data.data?.pipeline_id || prev?.pipelineId,
+          workflowYaml: data.data?.workflow_yaml || prev?.workflowYaml,
+          approval: {
+            pipeline_id: data.data?.pipeline_id,
+            agents: normalizedAgents,
+            description: data.data?.description,
+            workflow_yaml: data.data?.workflow_yaml || '',
+            stages: data.data?.stages,
+            prompt: data.data?.prompt,
+            message: data.data?.message,
+          },
+          plan: {
+            ...(prev?.plan || {}),
+            description: data.data?.description || prev?.plan?.description,
+            agents: normalizedAgents.length ? normalizedAgents : (prev?.plan?.agents || []),
+            stages: data.data?.stages ?? prev?.plan?.stages,
+            total_agents: normalizedAgents.length || prev?.plan?.total_agents,
+          },
+          agents: normalizedAgents.length
+            ? normalizedAgents.map((agent) => {
+                const existing = (prev?.agents || []).find((a) => a.agent_id === agent.agent_id);
+                return existing ? { ...existing, ...agent, status: existing.status || agent.status } : agent;
+              })
+            : prev?.agents,
+          engine: 'ropex',
+        };
+      });
       break;
 
     case WEBSOCKET_EVENTS.STAGE:
@@ -99,6 +164,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         ...prev,
         stage: data.stage,
         stageMessage: data.message,
+        isLoading: data.stage === 'initializing' ? true : prev?.isLoading,
       }));
       // Update loading message with stage info
       setMessages((msgs) => {
@@ -143,15 +209,19 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
           if (status === 'complete') return AGENT_STATUS.COMPLETE;
           if (status === 'running') return AGENT_STATUS.RUNNING;
           if (status === 'pending') return AGENT_STATUS.PENDING;
+          if (status === 'error' || status === 'failed') return AGENT_STATUS.ERROR;
           return status || AGENT_STATUS.PENDING;
         };
+
+        // Ropex may send plan with agents JSON, or only message/stages — stay resilient
+        const planAgents = Array.isArray(data.data?.agents) ? data.data.agents : [];
         
         // Build merged agents list
-        const newPlanAgentIds = new Set(data.data.agents.map(a => a.agent_id));
+        const newPlanAgentIds = new Set(planAgents.map(a => a.agent_id));
         const mergedAgents = [];
         
         // First, process all agents from the new plan (preserving existing state)
-        for (const agent of data.data.agents) {
+        for (const agent of planAgents) {
           const existing = existingAgentStates.get(agent.agent_id);
           if (existing) {
             // Preserve existing state - CRITICAL: keep logs, status, input, output, startTime, etc.
@@ -198,12 +268,25 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
           }
         }
         
+        const totalAgents = data.data?.total_agents || planAgents.length || 0;
+        const totalLayers = data.data?.total_layers || 1;
         return {
           ...prev,
           stage: 'planned',
-          plan: data.data,
+          isLoading: false,
+          plan: {
+            ...data.data,
+            agents: planAgents,
+            total_agents: totalAgents,
+            total_layers: totalLayers,
+            description: data.data?.description || data.data?.message || prev?.plan?.description,
+          },
           agents: mergedAgents,
-          stageMessage: `Executing ${data.data.total_agents} agents across ${data.data.total_layers} layers`,
+          stageMessage:
+            totalAgents > 0
+              ? `Executing ${totalAgents} agents across ${totalLayers} layers`
+              : (data.data?.message || 'Ropex plan ready'),
+          engine: 'ropex',
         };
       });
       break;
@@ -529,6 +612,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
           stage: 'stopped',
           stageMessage: data.message || 'Execution stopped by user',
           agents: updatedAgents,
+          approval: null,
         };
       });
 

@@ -137,6 +137,9 @@ active_connections: List[WebSocket] = []
 # Cancellation tokens for active executions (websocket -> Event)
 cancellation_tokens: Dict[WebSocket, asyncio.Event] = {}
 
+# HITL: pipeline_id → Future[bool] (True=approve, False=reject)
+pending_approvals: Dict[str, asyncio.Future] = {}
+
 
 class QueryRequest(BaseModel):
     """Query request model."""
@@ -182,11 +185,13 @@ async def startup_event():
         executor = RopexExecutor(
             base_url=config.ropex_base_url,
             async_drain=config.ropex_async_drain,
+            require_approval=config.ropex_require_approval,
         )
         logger.info(
-            "✓ Ropex executor ready (%s, async_drain=%s) — LangGraph skipped",
+            "✓ Ropex executor ready (%s, async_drain=%s, require_approval=%s) — LangGraph skipped",
             config.ropex_base_url,
             config.ropex_async_drain,
+            config.ropex_require_approval,
         )
         return
 
@@ -289,6 +294,7 @@ async def health_check():
         except Exception as exc:
             payload["status"] = "degraded"
             payload["ropex"] = {"status": "unreachable", "error": str(exc)}
+        payload["ropex_require_approval"] = bool(config.ropex_require_approval)
     return payload
 
 
@@ -663,6 +669,11 @@ async def websocket_endpoint(websocket: WebSocket):
             if current_task is not None and not current_task.done():
                 current_task.cancel()
                 logger.info("Execution task cancelled")
+
+            # Reject any pending HITL approval for this connection's pipelines
+            for pid, fut in list(pending_approvals.items()):
+                if not fut.done():
+                    fut.set_result(False)
             
             # Save stopped message to database if we have a session
             stopped_message = "Execution stopped by user"
@@ -686,6 +697,36 @@ async def websocket_endpoint(websocket: WebSocket):
             # Clear current query/session
             current_query = None
             current_session_id = None
+            return
+
+        # Human-in-the-loop: approve / reject pending Ropex drain
+        if message_type in ("approve", "reject"):
+            pipeline_id = (
+                message_data.get("pipeline_id")
+                or message_data.get("pipelineId")
+                or (message_data.get("data") or {}).get("pipeline_id")
+            )
+            if not pipeline_id:
+                await websocket.send_json(
+                    {"type": "error", "message": "pipeline_id required for approve/reject"}
+                )
+                return
+            fut = pending_approvals.get(str(pipeline_id))
+            if fut is None or fut.done():
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": f"No pending approval for pipeline {pipeline_id}",
+                    }
+                )
+                return
+            approved = message_type == "approve"
+            fut.set_result(approved)
+            logger.info(
+                "HITL %s for pipeline %s",
+                "approved" if approved else "rejected",
+                pipeline_id,
+            )
             return
         
         # Handle query message
@@ -1134,10 +1175,62 @@ async def _process_query_via_ropex(
     async def send_json(payload: Dict[str, Any]) -> None:
         await websocket.send_json(payload)
 
-    result = await executor.relay_to_websocket(send_json, query, cancel_event=cancel_event)
+    async def approval_gate(info: Dict[str, Any]) -> bool:
+        """Pause until the UI approves or rejects the planned workflow."""
+        pipeline_id = str(info.get("pipeline_id") or "")
+        if not pipeline_id:
+            return False
+
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future = loop.create_future()
+        pending_approvals[pipeline_id] = fut
+
+        await send_json(
+            {
+                "type": "approval_required",
+                "data": {
+                    "pipeline_id": pipeline_id,
+                    "agents": info.get("agents") or [],
+                    "description": info.get("description"),
+                    "workflow_yaml": info.get("workflow_yaml") or "",
+                    "stages": info.get("stages"),
+                    "prompt": info.get("prompt"),
+                    "message": "Review the workflow YAML and steps, then approve to run.",
+                },
+            }
+        )
+
+        try:
+            while not fut.done():
+                if cancel_event is not None and cancel_event.is_set():
+                    if not fut.done():
+                        fut.set_result(False)
+                    break
+                await asyncio.wait({fut}, timeout=0.25)
+            return bool(fut.result()) if fut.done() else False
+        finally:
+            pending_approvals.pop(pipeline_id, None)
+
+    # Seed studio UI immediately (before Ropex SSE arrives)
+    await send_json(
+        {
+            "type": "stage",
+            "stage": "initializing",
+            "message": "Connecting to Ropex execution engine…",
+        }
+    )
+
+    gate = approval_gate if getattr(executor, "require_approval", False) else None
+    result = await executor.relay_to_websocket(
+        send_json, query, cancel_event=cancel_event, approval_gate=gate
+    )
     final_output = result.get("final_output", "")
     pipeline_id = result.get("session_id", "")
     save_session_id = session_id or pipeline_id
+
+    if result.get("rejected"):
+        logger.info("Ropex pipeline %s rejected by user — skipping save of empty output", pipeline_id)
+        return
 
     try:
         from .database import SessionLocal

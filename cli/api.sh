@@ -52,6 +52,25 @@ api_start() {
     
     if wait_for_service "http://localhost:$API_PORT/health" "API" 30; then
         log_success "API server running at http://localhost:$API_PORT"
+        # Surface Ropex engine status when configured
+        if [[ -f "$SCRIPT_DIR/.env" ]]; then
+            source "$SCRIPT_DIR/.env" 2>/dev/null || true
+        fi
+        local engine="${EXECUTION_ENGINE:-}"
+        local ropex_url="${ROPEX_BASE_URL:-}"
+        if [[ -z "$engine" && -n "$ropex_url" ]]; then
+            engine="ropex"
+        fi
+        if [[ "$engine" == "ropex" ]]; then
+            ropex_url="${ropex_url:-http://127.0.0.1:7780}"
+            if curl -sf "${ropex_url%/}/api/v1/pipeline" >/dev/null 2>&1 \
+                || curl -sf "${ropex_url%/}/api/v1/health" >/dev/null 2>&1; then
+                log_success "Ropex execution engine reachable at $ropex_url"
+            else
+                log_warning "EXECUTION_ENGINE=ropex but Ropex is not reachable at $ropex_url"
+                log_warning "Start Ropex first (e.g. \`ropex ui\` or docker compose in the Ropex repo)"
+            fi
+        fi
     else
         log_error "API server failed to start"
         cat "$DATA_DIR/api.log" | tail -20

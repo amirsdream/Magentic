@@ -21,3 +21,18 @@ export { default as ArtifactPreviewPanel } from './ArtifactPreviewPanel.jsx';
 
 // Chat area components
 export { default as ChatArea } from './ChatArea.jsx';
+
+// Studio workspace
+export {
+  StudioWorkspace,
+  StudioHome,
+  WorkflowList,
+  WorkflowDetail,
+  WorkflowOrchestrator,
+  WorkflowCanvas,
+  AgentActionFlow,
+  PipelineStrip,
+  HitlApprovalCard,
+  StepsRail,
+  WorkflowYamlPanel,
+} from './studio';

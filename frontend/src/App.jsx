@@ -1,6 +1,6 @@
 /**
- * Main App component - Magentic chat interface v3.0
- * Redesigned with animated UI and agent visualization
+ * Main App — Magentic studio
+ * Workflow list → open workflow (chat + visual flow + actions) + HITL
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -14,25 +14,22 @@ import {
   LoadingScreen,
   ProfileModal,
   Sidebar,
-  EnhancedChatInput,
   SettingsPanel,
   WorkflowVisualization,
   ArtifactPreviewPanel,
-  ChatArea,
+  StudioWorkspace,
 } from './components';
 import { useUIStore, useConnectionStore } from './store';
 
 function App() {
   const { user, isAuthenticated, isGuest, loading, updateProfile } = useAuth();
   
-  // Memoize user data to prevent unnecessary re-renders
   const stableUser = useMemo(() => ({
     username: user?.username,
     display_name: user?.display_name,
     avatar_emoji: user?.avatar_emoji,
   }), [user?.username, user?.display_name, user?.avatar_emoji]);
   
-  // Use chat hook for all chat state and logic
   const {
     messages,
     currentExecution,
@@ -45,10 +42,8 @@ function App() {
     sendChatMessage,
   } = useChat(user, isAuthenticated);
   
-  // Theme sync hook
   useThemeSync(user, isAuthenticated, isGuest, updateProfile);
   
-  // UI stores
   const {
     sidebarOpen,
     settingsOpen,
@@ -62,25 +57,50 @@ function App() {
   
   const { setConnected } = useConnectionStore();
   
-  // Local UI state
   const [showProfile, setShowProfile] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [viewingExecution, setViewingExecution] = useState(null);
   const [previewArtifact, setPreviewArtifact] = useState(null);
+  const [executionEngine, setExecutionEngine] = useState(null);
+  const [ropexStatus, setRopexStatus] = useState(null);
+  const [requireApproval, setRequireApproval] = useState(null);
 
-  // WebSocket connection
+  useEffect(() => {
+    let cancelled = false;
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const poll = async () => {
+      try {
+        const res = await fetch(`${apiBase}/health`);
+        if (!res.ok) return;
+        const body = await res.json();
+        if (cancelled) return;
+        setExecutionEngine(body.execution_engine || null);
+        setRopexStatus(body.ropex?.status || null);
+        if (typeof body.ropex_require_approval === 'boolean') {
+          setRequireApproval(body.ropex_require_approval);
+        }
+      } catch {
+        /* API may still be starting */
+      }
+    };
+    poll();
+    const id = setInterval(poll, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
   const { isConnected, sendMessage } = useWebSocket(
     user,
     isAuthenticated,
     handleWebSocketMessage
   );
 
-  // Sync connection state
   useEffect(() => {
     setConnected(isConnected);
   }, [isConnected, setConnected]);
 
-  // Show login modal if not authenticated
   useEffect(() => {
     if (!loading && !isAuthenticated) {
       const timer = setTimeout(() => setShowLogin(true), 100);
@@ -90,18 +110,25 @@ function App() {
     }
   }, [loading, isAuthenticated]);
 
-  // Handle send message
   const handleSend = useCallback(async (content) => {
     if (!content.trim() || !isConnected) return;
     await sendChatMessage(content, sendMessage);
   }, [isConnected, sendChatMessage, sendMessage]);
 
-  // Handle stop execution
   const handleStop = useCallback(() => {
     sendMessage({ type: 'stop' });
   }, [sendMessage]);
 
-  // Stable callbacks
+  const handleApprove = useCallback((pipelineId) => {
+    if (!pipelineId) return;
+    sendMessage({ type: 'approve', pipeline_id: pipelineId });
+  }, [sendMessage]);
+
+  const handleReject = useCallback((pipelineId) => {
+    if (!pipelineId) return;
+    sendMessage({ type: 'reject', pipeline_id: pipelineId });
+  }, [sendMessage]);
+
   const openProfile = useCallback(() => setShowProfile(true), []);
   const closeProfile = useCallback(() => setShowProfile(false), []);
   const closeLogin = useCallback(() => setShowLogin(false), []);
@@ -109,19 +136,161 @@ function App() {
   const closeViewingExecution = useCallback(() => setViewingExecution(null), []);
   const closeArtifactPreview = useCallback(() => setPreviewArtifact(null), []);
 
-  // Determine processing state
+  // Demo overrides for studio panes (`?demo=hitl` / `?demo=loop`)
+  const studioExecution = useMemo(() => {
+    if (currentExecution) return currentExecution;
+    if (typeof window === 'undefined') return null;
+    const demo = new URLSearchParams(window.location.search).get('demo');
+    if (demo === 'hitl') {
+      return {
+        stage: 'awaiting_approval',
+        stageMessage: 'Waiting for human approval…',
+        pipelineId: 'pipe-demo-hitl',
+        workflowYaml: `pipeline:
+  id: pipe-demo-hitl
+  description: Research and synthesize an answer
+  prompt: What is Magentic studio?
+  stage_count: 3
+  stages:
+    - id: stage_0
+      layer: 0
+      agents:
+        - id: coordinator_0
+          role: coordinator
+          task: Plan the approach
+          status: pending
+    - id: stage_1
+      layer: 1
+      agents:
+        - id: researcher_1
+          role: researcher
+          task: Gather sources
+          status: pending
+    - id: stage_2
+      layer: 2
+      agents:
+        - id: synthesizer_2
+          role: synthesizer
+          task: Write the final answer
+          status: pending
+`,
+        plan: {
+          description: 'Research and synthesize an answer',
+          total_agents: 3,
+          stages: 3,
+          agents: [
+            { agent_id: 'coordinator_0', role: 'coordinator', task: 'Plan the approach', layer: 0, status: 'pending' },
+            { agent_id: 'researcher_1', role: 'researcher', task: 'Gather sources', layer: 1, status: 'pending' },
+            { agent_id: 'synthesizer_2', role: 'synthesizer', task: 'Write the final answer', layer: 2, status: 'pending' },
+          ],
+        },
+        agents: [
+          { agent_id: 'coordinator_0', role: 'coordinator', task: 'Plan the approach', layer: 0, status: 'pending' },
+          { agent_id: 'researcher_1', role: 'researcher', task: 'Gather sources', layer: 1, status: 'pending' },
+          { agent_id: 'synthesizer_2', role: 'synthesizer', task: 'Write the final answer', layer: 2, status: 'pending' },
+        ],
+        approval: {
+          pipeline_id: 'pipe-demo-hitl',
+          agents: [
+            { agent_id: 'coordinator_0', role: 'coordinator', task: 'Plan the approach', status: 'pending' },
+            { agent_id: 'researcher_1', role: 'researcher', task: 'Gather sources', status: 'pending' },
+            { agent_id: 'synthesizer_2', role: 'synthesizer', task: 'Write the final answer', status: 'pending' },
+          ],
+          description: 'Research and synthesize an answer',
+          workflow_yaml: '',
+          stages: 3,
+          message: 'Review the pipeline stages and agent actions, then approve to run.',
+        },
+      };
+    }
+    if (demo === 'loop') {
+      return {
+        stage: 'executing',
+        stageMessage: 'Agents running',
+        pipelineId: 'pipe-demo-loop',
+        workflowYaml: `pipeline:
+  id: pipe-demo-loop
+  description: Research and synthesize an answer
+  stage_count: 3
+  stages:
+    - id: stage_0
+      layer: 0
+      agents:
+        - id: coordinator_0
+          role: coordinator
+          task: Plan the approach
+          status: complete
+    - id: stage_1
+      layer: 1
+      agents:
+        - id: researcher_1
+          role: researcher
+          task: Gather sources
+          status: running
+    - id: stage_2
+      layer: 2
+      agents:
+        - id: synthesizer_2
+          role: synthesizer
+          task: Write the final answer
+          status: pending
+`,
+        plan: {
+          description: 'Research and synthesize an answer',
+          total_agents: 3,
+          stages: 3,
+          agents: [
+            { agent_id: 'coordinator_0', role: 'coordinator', task: 'Plan the approach', layer: 0 },
+            { agent_id: 'researcher_1', role: 'researcher', task: 'Gather sources', layer: 1 },
+            { agent_id: 'synthesizer_2', role: 'synthesizer', task: 'Write the final answer', layer: 2 },
+          ],
+        },
+        agents: [
+          {
+            agent_id: 'coordinator_0',
+            role: 'coordinator',
+            task: 'Plan the approach',
+            layer: 0,
+            status: 'complete',
+            output: 'Deploy researcher → synthesizer.',
+            logs: [{ type: 'thinking', content: 'Breaking the query into research + synthesis.' }],
+          },
+          {
+            agent_id: 'researcher_1',
+            role: 'researcher',
+            task: 'Gather sources',
+            layer: 1,
+            status: 'running',
+            logs: [
+              { type: 'thought', content: 'Searching recent docs…' },
+              { type: 'observation', content: 'Found 4 relevant sources.' },
+            ],
+            tool_calls: [{ name: 'web_search' }],
+          },
+          {
+            agent_id: 'synthesizer_2',
+            role: 'synthesizer',
+            task: 'Write the final answer',
+            layer: 2,
+            status: 'pending',
+          },
+        ],
+      };
+    }
+    return null;
+  }, [currentExecution]);
+
   const isActivelyExecuting = currentExecution && 
     currentExecution.stage !== 'complete' && 
     currentExecution.stage !== 'stopped';
   const isProcessing = isActivelyExecuting || 
     (executingConversationId && executingConversationId !== activeConversationId);
   
-  // Loading state
   const loadingMessage = loading 
     ? 'Authenticating...' 
     : isLoadingChats 
       ? 'Loading your conversations...' 
-      : 'Preparing workspace...';
+      : 'Preparing studio...';
   
   const showLoadingScreen = loading || (isAuthenticated && !isInitialized);
   
@@ -130,13 +299,13 @@ function App() {
   }
 
   return (
-    <div className="relative flex h-screen overflow-hidden transition-colors duration-200 bg-[#f4f7fb] dark:bg-slate-950">
+    <div className="relative flex h-screen overflow-hidden transition-colors duration-200 bg-[#eef3f8] dark:bg-slate-950">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-70 dark:opacity-40"
+        className="pointer-events-none absolute inset-0 opacity-80 dark:opacity-45"
         style={{
           background:
-            'radial-gradient(ellipse 70% 50% at 10% 0%, rgba(14,165,233,0.10), transparent 55%), radial-gradient(ellipse 50% 40% at 90% 10%, rgba(20,184,166,0.08), transparent 50%)',
+            'radial-gradient(ellipse 65% 45% at 8% 0%, rgba(14,165,233,0.12), transparent 55%), radial-gradient(ellipse 45% 35% at 92% 8%, rgba(20,184,166,0.10), transparent 50%), radial-gradient(ellipse 40% 30% at 50% 100%, rgba(14,165,233,0.06), transparent 50%)',
         }}
       />
       <Toaster 
@@ -167,31 +336,35 @@ function App() {
           onToggleWorkflow={toggleAgentFlow}
           showWorkflow={showAgentFlow}
           hasActiveExecution={!!currentExecution && currentExecution.stage !== 'complete' && currentExecution.stage !== 'stopped'}
+          executionEngine={executionEngine}
+          ropexStatus={ropexStatus}
+          requireApproval={requireApproval}
+          awaitingApproval={studioExecution?.stage === 'awaiting_approval'}
         />
 
         <div className="flex-1 flex overflow-hidden">
           <motion.div 
-            className="flex-1 flex flex-col overflow-hidden"
+            className="flex-1 flex flex-col overflow-hidden min-w-0"
             layout
             transition={{ duration: 0.3 }}
           >
-            <ChatArea
+            <StudioWorkspace
               messages={messages}
-              currentExecution={currentExecution}
+              currentExecution={studioExecution}
+              executionHistory={executionHistory}
               onRetry={handleSend}
               onPreviewArtifact={setPreviewArtifact}
               showExecutionDetails={showExecutionDetails}
-            />
-
-            <EnhancedChatInput
               onSend={handleSend}
               onStop={handleStop}
+              onApprove={handleApprove}
+              onReject={handleReject}
               isConnected={isConnected}
+              isProcessing={isProcessing}
               disabled={Boolean(
                 executingConversationId && executingConversationId !== activeConversationId
               )}
-              isProcessing={isProcessing}
-              showSuggestions={messages.length === 0 && !isProcessing}
+              showSuggestions={false}
               disabledMessage={
                 executingConversationId && executingConversationId !== activeConversationId
                   ? 'A query is running in another chat...'
@@ -207,7 +380,7 @@ function App() {
                 animate={{ width: 450, opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
                 transition={{ duration: 0.3, ease: 'easeInOut' }}
-                className="h-full border-l border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-gray-900/50 overflow-hidden flex flex-col"
+                className="hidden xl:flex h-full border-l border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-gray-900/50 overflow-hidden flex-col"
               >
                 <WorkflowVisualization 
                   execution={currentExecution} 

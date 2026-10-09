@@ -13,11 +13,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Optional
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
 
 import httpx
+import yaml
 
 logger = logging.getLogger(__name__)
+
+ApprovalGate = Callable[[Dict[str, Any]], Awaitable[bool]]
 
 # Native Ropex `kind` → Magentic WebSocket `type` (mirrors ropex mapExecutorEventToUi)
 ROPEX_KIND_TO_UI_TYPE = {
@@ -189,6 +192,59 @@ def normalize_ui_event(event: Dict[str, Any]) -> Dict[str, Any]:
     return {"type": ui_type, "data": data}
 
 
+def agents_to_workflow_yaml(
+    pipeline_id: str,
+    plan_data: Dict[str, Any],
+    *,
+    prompt: Optional[str] = None,
+) -> str:
+    """Serialize a Ropex plan into a pipeline YAML (stages → agents).
+
+    Shape mirrors Ropex planning: layered stages with agents per stage,
+    suitable for Magentic studio visualization and edit/export.
+    """
+    agents = plan_data.get("agents") if isinstance(plan_data.get("agents"), list) else []
+    by_layer: Dict[int, List[Dict[str, Any]]] = {}
+    for index, agent in enumerate(agents):
+        if not isinstance(agent, dict):
+            continue
+        layer = int(agent.get("layer") if agent.get("layer") is not None else index)
+        step: Dict[str, Any] = {
+            "id": agent.get("agent_id") or f"agent_{index + 1}",
+            "role": agent.get("role") or f"agent_{index + 1}",
+            "status": agent.get("status") or "pending",
+        }
+        if agent.get("task"):
+            step["task"] = agent["task"]
+        by_layer.setdefault(layer, []).append(step)
+
+    stages: List[Dict[str, Any]] = []
+    for layer in sorted(by_layer.keys()):
+        stages.append(
+            {
+                "id": f"stage_{layer}",
+                "layer": layer,
+                "agents": by_layer[layer],
+            }
+        )
+
+    # Fall back to empty stage list with declared stage count from plan
+    stage_count = plan_data.get("stages") or len(stages)
+    doc: Dict[str, Any] = {
+        "pipeline": {
+            "id": pipeline_id,
+            "description": plan_data.get("description")
+            or plan_data.get("message")
+            or "Ropex pipeline",
+            "stage_count": stage_count,
+            "stages": stages,
+        }
+    }
+    if prompt:
+        doc["pipeline"]["prompt"] = prompt
+    return yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False)
+
+
 def _parse_sse_payload(line: str, sse_event: Optional[str]) -> Optional[Dict[str, Any]]:
     """Parse one SSE `data:` line (and optional preceding `event:` name)."""
     if sse_event == "end":
@@ -231,6 +287,7 @@ class RopexExecutor:
         *,
         timeout: float = 600.0,
         async_drain: bool = True,
+        require_approval: bool = False,
         concurrency: Optional[int] = None,
     ):
         if not base_url:
@@ -238,6 +295,7 @@ class RopexExecutor:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.async_drain = async_drain
+        self.require_approval = require_approval
         self.concurrency = concurrency
         self.pipeline_path = "/api/v1/pipeline"
         self.events_path = "/api/v1/events"
@@ -547,22 +605,69 @@ class RopexExecutor:
         query: str,
         *,
         cancel_event: Optional[asyncio.Event] = None,
+        approval_gate: Optional[ApprovalGate] = None,
     ) -> Dict[str, Any]:
         """Submit to Ropex and relay format=ui SSE events via send_json (WebSocket).
 
         Default (async_drain=True): submit with drain=false, open SSE, then scoped drain
         so events stream live while stages run sequentially (Ropex Magentic adapter flow).
+
+        When require_approval=True and approval_gate is set, pause after the plan event
+        and only drain once the gate returns True.
         """
         if cancel_event is not None and cancel_event.is_set():
             raise asyncio.CancelledError("Execution cancelled before submit")
 
         await send_json(
-            {"type": "status", "message": "Submitting to Ropex...", "stage": "ropex_submit"}
+            {
+                "type": "status",
+                "message": "Submitting to Ropex…",
+                "stage": "ropex_submit",
+                "data": {"engine": "ropex"},
+            }
         )
 
         if self.async_drain:
-            return await self._relay_async_drain(send_json, query, cancel_event=cancel_event)
+            return await self._relay_async_drain(
+                send_json,
+                query,
+                cancel_event=cancel_event,
+                approval_gate=approval_gate,
+            )
         return await self._relay_sync_drain(send_json, query, cancel_event=cancel_event)
+
+    async def _pump_sse_to_queue(
+        self,
+        lines: AsyncIterator[str],
+        queue: "asyncio.Queue[Optional[Dict[str, Any]]]",
+        *,
+        cancel_event: Optional[asyncio.Event] = None,
+    ) -> None:
+        """Read SSE lines into a queue so the consumer can pause for HITL approval."""
+        sse_event: Optional[str] = None
+        try:
+            async for line in lines:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise asyncio.CancelledError("Ropex SSE cancelled")
+                if not line or line.startswith(":"):
+                    continue
+                if line.startswith("event:"):
+                    sse_event = line[6:].strip()
+                    continue
+                if not line.startswith("data:"):
+                    continue
+                raw = line[5:].strip()
+                if not raw:
+                    continue
+                event = _parse_sse_payload(raw, sse_event)
+                sse_event = None
+                if event is None:
+                    continue
+                await queue.put(event)
+                if event.get("type") in SSE_TERMINAL_UI_TYPES:
+                    break
+        finally:
+            await queue.put(None)
 
     async def _relay_async_drain(
         self,
@@ -570,6 +675,7 @@ class RopexExecutor:
         query: str,
         *,
         cancel_event: Optional[asyncio.Event] = None,
+        approval_gate: Optional[ApprovalGate] = None,
     ) -> Dict[str, Any]:
         submit = await self.submit_pipeline(query, drain=False)
         pipeline = submit.get("pipeline") or {}
@@ -581,9 +687,14 @@ class RopexExecutor:
         saw_complete = False
         saw_stream_end = False
         drain_task: Optional[asyncio.Task] = None
+        pump_task: Optional[asyncio.Task] = None
+        use_gate = bool(self.require_approval and approval_gate is not None)
+        plan_data: Dict[str, Any] = {}
+        rejected = False
 
         try:
             params = {"pipelineId": pipeline_id, "format": "ui"}
+            event_queue: asyncio.Queue[Optional[Dict[str, Any]]] = asyncio.Queue()
 
             async with self._client(stream=True) as client:
                 async with client.stream("GET", self.events_path, params=params) as response:
@@ -592,20 +703,120 @@ class RopexExecutor:
                             _extract_ropex_error(response),
                             status_code=response.status_code,
                         )
-                    drain_task = asyncio.create_task(self.drain_pipeline(pipeline_id))
-                    final_output, saw_complete, saw_stream_end = await self._consume_sse_lines(
-                        response.aiter_lines(),
-                        send_json,
-                        cancel_event=cancel_event,
+
+                    pump_task = asyncio.create_task(
+                        self._pump_sse_to_queue(
+                            response.aiter_lines(),
+                            event_queue,
+                            cancel_event=cancel_event,
+                        )
                     )
+
+                    if not use_gate:
+                        drain_task = asyncio.create_task(self.drain_pipeline(pipeline_id))
+
+                    awaiting_approval = use_gate
+                    while True:
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise asyncio.CancelledError("Ropex relay cancelled")
+
+                        event = await event_queue.get()
+                        if event is None:
+                            break
+
+                        out, complete, stop = await self._forward_ui_event(send_json, event)
+                        if out is not None:
+                            final_output = out
+                        if complete:
+                            saw_complete = True
+                        if event.get("type") == "stream_end":
+                            saw_stream_end = True
+
+                        if awaiting_approval and event.get("type") == "plan":
+                            plan_data = dict(event.get("data") or {})
+                            workflow_yaml = agents_to_workflow_yaml(
+                                pipeline_id, plan_data, prompt=query
+                            )
+                            await send_json(
+                                {
+                                    "type": "status",
+                                    "message": "Waiting for human approval…",
+                                    "stage": "awaiting_approval",
+                                    "data": {
+                                        "pipeline_id": pipeline_id,
+                                        "engine": "ropex",
+                                    },
+                                }
+                            )
+                            approved = await approval_gate(
+                                {
+                                    "pipeline_id": pipeline_id,
+                                    "agents": plan_data.get("agents") or [],
+                                    "description": plan_data.get("description")
+                                    or plan_data.get("message"),
+                                    "workflow_yaml": workflow_yaml,
+                                    "stages": plan_data.get("stages"),
+                                    "prompt": query,
+                                }
+                            )
+                            awaiting_approval = False
+                            if not approved:
+                                rejected = True
+                                await send_json(
+                                    {
+                                        "type": "stopped",
+                                        "message": "Workflow rejected — execution skipped",
+                                        "data": {"pipeline_id": pipeline_id},
+                                    }
+                                )
+                                break
+                            drain_task = asyncio.create_task(self.drain_pipeline(pipeline_id))
+                            await send_json(
+                                {
+                                    "type": "status",
+                                    "message": "Approved — draining pipeline…",
+                                    "stage": "executing",
+                                    "data": {
+                                        "pipeline_id": pipeline_id,
+                                        "engine": "ropex",
+                                    },
+                                }
+                            )
+
+                        if stop:
+                            break
+
+                    if pump_task is not None and not pump_task.done():
+                        pump_task.cancel()
+                        try:
+                            await pump_task
+                        except (asyncio.CancelledError, Exception):
+                            pass
         finally:
             if drain_task is not None:
                 try:
                     await drain_task
                 except Exception as exc:
                     logger.warning("Ropex drain task failed: %s", exc)
-                    if not saw_complete:
+                    if not saw_complete and not rejected:
                         raise
+
+        if rejected:
+            return {
+                "final_output": "",
+                "session_id": pipeline_id,
+                "execution_time": 0,
+                "references": [],
+                "artifacts": [],
+                "pipeline": pipeline,
+                "rejected": True,
+            }
+
+        # If we gated but never saw a plan, drain was never started — fail clearly
+        if use_gate and drain_task is None and not saw_complete:
+            raise RuntimeError(
+                f"Ropex pipeline {pipeline_id} ended without a plan event; cannot approve drain"
+            )
 
         final_output, _ = await self._finalize_terminal(
             send_json,

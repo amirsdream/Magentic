@@ -102,7 +102,14 @@ ANTHROPIC_MODEL=claude-sonnet-4-20250514
 ENABLE_RAG=true                  # Document retrieval
 ENABLE_MCP=true                  # MCP tools (requires Docker)
 ENABLE_METRICS=true              # Prometheus metrics
+
+# Execution engine (Ropex recommended — see docs/ROPEX.md)
+EXECUTION_ENGINE=ropex
+ROPEX_BASE_URL=http://127.0.0.1:7780
+ROPEX_REQUIRE_APPROVAL=true
 ```
+
+Studio UI: chat on home to create a Ropex pipeline → open it (stage pipeline + agent flow + actions), with human-in-the-loop approve-before-drain when `ROPEX_REQUIRE_APPROVAL=true`.
 
 ## Agent Roles
 
