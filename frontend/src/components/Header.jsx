@@ -48,6 +48,40 @@ const ConnectionStatus = memo(function ConnectionStatus({ isConnected }) {
   );
 });
 
+/** Shows which execution engine Magentic is using (Ropex vs LangGraph). */
+const EngineBadge = memo(function EngineBadge({ engine, ropexStatus }) {
+  if (!engine) return null;
+  const isRopex = engine === 'ropex';
+  const healthy = !isRopex || ropexStatus === 'healthy' || ropexStatus == null;
+  return (
+    <div
+      className={clsx(
+        'flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium',
+        isRopex
+          ? healthy
+            ? 'bg-teal-500/10 border-teal-500/30 text-teal-700 dark:text-teal-300'
+            : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300'
+          : 'bg-slate-100/80 dark:bg-gray-800/50 border-slate-200/50 dark:border-gray-700/50 text-slate-500 dark:text-gray-400'
+      )}
+      title={
+        isRopex
+          ? healthy
+            ? 'Execution engine: Ropex (HTTP + SSE)'
+            : 'Ropex configured but unreachable — start the control plane on ROPEX_BASE_URL'
+          : 'Execution engine: LangGraph'
+      }
+    >
+      <span
+        className={clsx(
+          'w-1.5 h-1.5 rounded-full',
+          isRopex ? (healthy ? 'bg-teal-500' : 'bg-amber-500') : 'bg-slate-400'
+        )}
+      />
+      <span className="hidden sm:inline">{isRopex ? 'Ropex' : 'LangGraph'}</span>
+    </div>
+  );
+});
+
 // Knowledge Base Button with panel
 const KnowledgeBaseButton = memo(function KnowledgeBaseButton() {
   const {
@@ -234,6 +268,8 @@ function Header({
   onToggleWorkflow,
   showWorkflow,
   hasActiveExecution,
+  executionEngine,
+  ropexStatus,
 }) {
   return (
     <header className="sticky top-0 z-40 bg-white/80 dark:bg-gray-900/90 backdrop-blur-xl border-b border-slate-200/80 dark:border-purple-500/20 px-4 py-3 transition-colors duration-200">
@@ -322,6 +358,9 @@ function Header({
               {showExecutionDetails ? 'Details On' : 'Details Off'}
             </span>
           </motion.button>
+
+          {/* Execution engine (Ropex / LangGraph) */}
+          <EngineBadge engine={executionEngine} ropexStatus={ropexStatus} />
 
           {/* Connection Status */}
           <ConnectionStatus isConnected={isConnected} />

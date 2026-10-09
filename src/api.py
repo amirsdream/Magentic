@@ -1134,6 +1134,15 @@ async def _process_query_via_ropex(
     async def send_json(payload: Dict[str, Any]) -> None:
         await websocket.send_json(payload)
 
+    # Seed Copilot-style loop UI immediately (before Ropex SSE arrives)
+    await send_json(
+        {
+            "type": "stage",
+            "stage": "initializing",
+            "message": "Connecting to Ropex execution engine…",
+        }
+    )
+
     result = await executor.relay_to_websocket(send_json, query, cancel_event=cancel_event)
     final_output = result.get("final_output", "")
     pipeline_id = result.get("session_id", "")

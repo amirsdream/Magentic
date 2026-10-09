@@ -557,7 +557,12 @@ class RopexExecutor:
             raise asyncio.CancelledError("Execution cancelled before submit")
 
         await send_json(
-            {"type": "status", "message": "Submitting to Ropex...", "stage": "ropex_submit"}
+            {
+                "type": "status",
+                "message": "Submitting to Ropex…",
+                "stage": "ropex_submit",
+                "data": {"engine": "ropex"},
+            }
         )
 
         if self.async_drain:

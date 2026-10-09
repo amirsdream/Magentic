@@ -19,6 +19,12 @@ services:
       - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-false}
       - RAG_QDRANT_MODE=server
       - RAG_QDRANT_URL=http://qdrant:6333
+      # Ropex is the execution engine (HTTP + SSE). Point at host Ropex or a compose service.
+      - EXECUTION_ENGINE=${EXECUTION_ENGINE:-ropex}
+      - ROPEX_BASE_URL=${ROPEX_BASE_URL:-http://host.docker.internal:7780}
+      - ROPEX_ASYNC_DRAIN=${ROPEX_ASYNC_DRAIN:-true}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/app/data
       - ./rag_data:/app/rag_data

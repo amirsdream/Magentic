@@ -110,9 +110,21 @@ class Config:
         self.enable_mcp: bool = os.getenv("ENABLE_MCP", "false").lower() in ("true", "1", "yes")
         self.mcp_gateway_url: str = os.getenv("MCP_GATEWAY_URL", "http://localhost:9000")
 
-        # Execution engine: langgraph (default) or ropex (HTTP + SSE, no LangGraph fallback)
-        self.execution_engine: str = os.getenv("EXECUTION_ENGINE", "langgraph").lower()
-        self.ropex_base_url: str = os.getenv("ROPEX_BASE_URL", "").rstrip("/")
+        # Execution engine: ropex (HTTP + SSE) or langgraph.
+        # If ROPEX_BASE_URL is set and EXECUTION_ENGINE is unset, prefer Ropex.
+        # When EXECUTION_ENGINE=ropex with no URL, default to local Ropex control plane.
+        _engine_env = os.getenv("EXECUTION_ENGINE", "").strip().lower()
+        _ropex_url = os.getenv("ROPEX_BASE_URL", "").strip().rstrip("/")
+        if _engine_env:
+            self.execution_engine: str = _engine_env
+        elif _ropex_url:
+            self.execution_engine = "ropex"
+        else:
+            self.execution_engine = "langgraph"
+
+        if self.execution_engine == "ropex" and not _ropex_url:
+            _ropex_url = "http://127.0.0.1:7780"
+        self.ropex_base_url: str = _ropex_url
         self.ropex_async_drain: bool = os.getenv("ROPEX_ASYNC_DRAIN", "true").lower() in (
             "true",
             "1",
