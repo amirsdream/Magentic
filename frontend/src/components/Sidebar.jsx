@@ -166,7 +166,7 @@ function Sidebar({ onOpenSettings }) {
                   <div className="absolute inset-0 blur-xl bg-violet-500/20 dark:bg-purple-500/30 rounded-full" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-semibold bg-gradient-to-r from-violet-600 to-fuchsia-600 dark:from-purple-400 dark:to-pink-400 bg-clip-text text-transparent">
+                  <h1 className="text-xl font-semibold font-display tracking-tight text-slate-800 dark:text-white">
                     Magentic
                   </h1>
                   <p className="text-xs text-slate-500 dark:text-gray-500">v3.0</p>
@@ -183,7 +183,7 @@ function Sidebar({ onOpenSettings }) {
                   "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-medium shadow-lg transition-all duration-200",
                   executingConversationId
                     ? "bg-gray-400 dark:bg-gray-600 text-gray-200 cursor-not-allowed shadow-none"
-                    : "bg-gradient-to-r from-violet-600 to-fuchsia-600 dark:from-purple-600 dark:to-pink-600 hover:from-violet-500 hover:to-fuchsia-500 dark:hover:from-purple-500 dark:hover:to-pink-500 text-white shadow-violet-500/20 dark:shadow-purple-500/25"
+                    : "bg-gradient-to-r from-sky-600 to-teal-500 hover:from-sky-500 hover:to-teal-400 text-white shadow-sky-500/20"
                 )}
                 title={executingConversationId ? "Wait for current query to complete" : "Start a new chat"}
               >

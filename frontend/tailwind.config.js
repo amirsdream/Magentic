@@ -8,15 +8,16 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+        sans: ['"DM Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        display: ['"Instrument Serif"', 'Georgia', 'serif'],
       },
       colors: {
-        'magentic': {
-          primary: '#8B5CF6',
-          secondary: '#EC4899',
-          dark: '#1F2937',
-        }
-      }
+        magentic: {
+          primary: '#0ea5e9',
+          secondary: '#14b8a6',
+          dark: '#0f172a',
+        },
+      },
     },
   },
   plugins: [],

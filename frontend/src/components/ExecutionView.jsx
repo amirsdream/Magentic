@@ -4,9 +4,9 @@
  */
 
 import React, { useState } from 'react';
-import { Sparkles, FileCode, FileText, FileImage, File, Globe, BookOpen, ExternalLink } from 'lucide-react';
+import { Sparkles, FileCode, FileText, FileImage, File, Globe, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import WorkflowVisualization from './WorkflowVisualization';
+import AgentLoopBar from './AgentLoopBar';
 import MarkdownRenderer from './MarkdownRenderer';
 import { ExecutionStatusHeader, TokenBreakdown } from './shared';
 
@@ -142,45 +142,53 @@ function ExecutionView({
     return null;
   }
 
-  // Theme colors based on state - stopped (orange), complete (green), or running (purple)
+  // Clean Copilot-inspired theme — teal/sky, not purple
   const theme = isStopped
     ? {
-        border: 'border-orange-500/30',
-        bg: isCompact ? 'bg-white/30 dark:bg-gray-800/30' : 'bg-white/70 dark:bg-gray-800/50',
-        icon: 'text-orange-500 dark:text-orange-400',
-        title: 'text-orange-600 dark:text-orange-400',
-        accent: 'bg-orange-500/20',
-        hoverBg: 'hover:bg-orange-500/5'
+        border: 'border-amber-400/30',
+        bg: isCompact ? 'bg-white/40 dark:bg-slate-900/40' : 'bg-white/80 dark:bg-slate-900/60',
+        icon: 'text-amber-600 dark:text-amber-400',
+        title: 'text-amber-700 dark:text-amber-300',
+        accent: 'bg-amber-500/15',
+        hoverBg: 'hover:bg-amber-500/5',
       }
-    : isComplete 
+    : isComplete
       ? {
-          border: 'border-green-500/30',
-          bg: isCompact ? 'bg-white/30 dark:bg-gray-800/30' : 'bg-white/70 dark:bg-gray-800/50',
-          icon: 'text-green-500 dark:text-green-400',
-          title: 'text-green-600 dark:text-green-400',
-          accent: 'bg-green-500/20',
-          hoverBg: 'hover:bg-green-500/5'
+          border: 'border-teal-500/25',
+          bg: isCompact ? 'bg-white/40 dark:bg-slate-900/40' : 'bg-white/80 dark:bg-slate-900/60',
+          icon: 'text-teal-600 dark:text-teal-400',
+          title: 'text-teal-700 dark:text-teal-300',
+          accent: 'bg-teal-500/15',
+          hoverBg: 'hover:bg-teal-500/5',
         }
       : {
-          border: 'border-slate-200/80 dark:border-purple-500/30',
-          bg: 'bg-white/70 dark:bg-gray-800/50',
-          icon: 'text-violet-600 dark:text-purple-300',
-          title: 'text-violet-600 dark:text-purple-300',
-          accent: 'bg-violet-500/20 dark:bg-purple-500/20',
-          hoverBg: 'hover:bg-slate-50/50 dark:hover:bg-gray-700/30'
+          border: 'border-slate-200/90 dark:border-slate-700/80',
+          bg: 'bg-white/85 dark:bg-slate-900/65',
+          icon: 'text-sky-600 dark:text-sky-400',
+          title: 'text-slate-800 dark:text-slate-100',
+          accent: 'bg-sky-500/15',
+          hoverBg: 'hover:bg-slate-50/80 dark:hover:bg-slate-800/40',
         };
 
   // Check if we have response content
   const hasResponse = execution?.streamingContent || execution?.output;
   const hasArtifacts = execution?.artifacts?.length > 0;
 
+  const divider = isStopped
+    ? 'border-amber-400/20'
+    : isComplete
+      ? 'border-teal-500/20'
+      : 'border-slate-200/70 dark:border-slate-700/70';
+
   const content = (
-    <div className={`${theme.bg} border ${theme.border} ${isCompact ? 'rounded-lg' : 'rounded-2xl rounded-tl-sm'} overflow-hidden ${isCompact ? '' : 'max-w-4xl'} shadow-sm`}>
-      
-      {/* Workflow View - Header, token breakdown, and DAG (controlled by showDetails from header) */}
+    <div
+      className={`${theme.bg} border ${theme.border} ${
+        isCompact ? 'rounded-xl' : 'rounded-2xl'
+      } overflow-hidden ${isCompact ? '' : 'max-w-3xl'} shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur-sm`}
+    >
+      {/* Agent loop — Copilot-style vertical progress */}
       {showDetails && (
         <>
-          {/* Header - Clickable to expand/collapse workflow visualization */}
           <ExecutionStatusHeader
             execution={execution}
             isComplete={isComplete}
@@ -192,15 +200,10 @@ function ExecutionView({
             theme={theme}
           />
 
-          {/* Token breakdown - only show when complete and has tokens */}
           {isComplete && hasTokens && (
-            <TokenBreakdown 
-              tokenUsage={tokenUsage} 
-              costFormatted={costFormatted} 
-            />
+            <TokenBreakdown tokenUsage={tokenUsage} costFormatted={costFormatted} />
           )}
 
-          {/* Expandable Workflow Visualization - only if we have workflow data */}
           {hasWorkflowData && (
             <AnimatePresence>
               {showFlow && (
@@ -208,16 +211,13 @@ function ExecutionView({
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className={`border-t ${isStopped ? 'border-orange-500/20' : isComplete ? 'border-green-500/20' : 'border-slate-200/50 dark:border-purple-500/20'}`}
+                  transition={{ duration: 0.22 }}
+                  className={`border-t ${divider}`}
                 >
-                  {/* Auto height - content determines size, with max constraint */}
-                  <div className="max-h-[500px] overflow-y-auto">
-                    <WorkflowVisualization
+                  <div className="max-h-[480px] overflow-y-auto">
+                    <AgentLoopBar
                       execution={execution}
-                      isPanel={true}
-                      isLive={!isComplete && !isStopped}
-                      onRetry={onRetry}
+                      compact={isCompact}
                     />
                   </div>
                 </motion.div>
@@ -227,38 +227,38 @@ function ExecutionView({
         </>
       )}
 
-      {/* Response content - streaming or final */}
       {(execution?.streamingContent || execution?.output) && (
-        <div className={`${showDetails ? 'border-t' : ''} ${isStopped ? 'border-orange-500/20' : isComplete ? 'border-green-500/20' : 'border-slate-200/50 dark:border-purple-500/20'} p-4`}>
+        <div className={`${showDetails ? `border-t ${divider}` : ''} p-4`}>
           <div className="prose prose-slate dark:prose-invert prose-sm max-w-none">
-            <MarkdownRenderer 
-              content={execution.streamingContent || execution.output} 
+            <MarkdownRenderer
+              content={execution.streamingContent || execution.output}
               references={execution?.references || []}
             />
             {execution.stage === 'streaming' && (
-              <span className="inline-block w-2 h-4 bg-violet-500 dark:bg-purple-400 animate-pulse ml-0.5 align-middle" />
+              <span className="inline-block w-1.5 h-4 bg-sky-500 dark:bg-sky-400 animate-pulse ml-0.5 align-middle rounded-sm" />
             )}
           </div>
         </div>
       )}
 
-      {/* Artifacts - clickable to open preview panel */}
       {execution?.artifacts?.length > 0 && (
-        <div className={`border-t ${isStopped ? 'border-orange-500/20' : isComplete ? 'border-green-500/20' : 'border-slate-200/50 dark:border-purple-500/20'} p-4`}>
-          <p className="text-xs font-medium text-slate-500 dark:text-gray-400 mb-2">
-            {execution.artifacts.length} artifact{execution.artifacts.length !== 1 ? 's' : ''} created
+        <div className={`border-t ${divider} p-4`}>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">
+            {execution.artifacts.length} artifact
+            {execution.artifacts.length !== 1 ? 's' : ''} created
           </p>
           <div className="flex flex-wrap gap-2">
             {execution.artifacts.map((artifact, idx) => {
               const Icon = getArtifactIcon(artifact);
-              const filename = artifact.path?.split('/').pop() || artifact.name || `artifact-${idx}`;
+              const filename =
+                artifact.path?.split('/').pop() || artifact.name || `artifact-${idx}`;
               return (
                 <button
                   key={artifact.path || idx}
                   onClick={() => onPreviewArtifact?.(artifact)}
-                  className="flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-gray-700/50 hover:bg-slate-200 dark:hover:bg-gray-600/50 rounded-lg transition-colors text-sm text-slate-700 dark:text-gray-300 border border-slate-200 dark:border-gray-600"
+                  className="flex items-center gap-2 px-3 py-2 bg-slate-100/80 dark:bg-slate-800/60 hover:bg-slate-200/80 dark:hover:bg-slate-700/60 rounded-lg transition-colors text-sm text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700"
                 >
-                  <Icon className="w-4 h-4 text-violet-500 dark:text-purple-400" />
+                  <Icon className="w-4 h-4 text-teal-600 dark:text-teal-400" />
                   <span className="truncate max-w-[200px]">{filename}</span>
                 </button>
               );
@@ -267,11 +267,12 @@ function ExecutionView({
         </div>
       )}
 
-      {/* References - Compact inline list */}
       {execution?.references?.length > 0 && (
-        <div className={`border-t ${isStopped ? 'border-orange-500/20' : isComplete ? 'border-green-500/20' : 'border-slate-200/50 dark:border-purple-500/20'} px-4 py-2.5`}>
+        <div className={`border-t ${divider} px-4 py-2.5`}>
           <div className="flex items-start gap-2">
-            <span className="text-[10px] font-medium text-slate-400 dark:text-gray-500 uppercase tracking-wide mt-0.5">Sources</span>
+            <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wide mt-0.5">
+              Sources
+            </span>
             <div className="flex-1 flex flex-wrap gap-x-3 gap-y-1">
               {execution.references.map((ref, idx) => {
                 const isWeb = ref.type === 'web' || ref.url;
@@ -281,17 +282,21 @@ function ExecutionView({
                     href={ref.url || '#'}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors group"
+                    className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-sky-600 dark:hover:text-sky-400 transition-colors group"
                   >
-                    <span className={`text-[9px] font-semibold px-1 py-0.5 rounded ${
-                      isWeb 
-                        ? 'bg-blue-100/70 dark:bg-blue-500/15 text-blue-500 dark:text-blue-400' 
-                        : 'bg-amber-100/70 dark:bg-amber-500/15 text-amber-500 dark:text-amber-400'
-                    }`}>
+                    <span
+                      className={`text-[9px] font-semibold px-1 py-0.5 rounded ${
+                        isWeb
+                          ? 'bg-sky-100/70 dark:bg-sky-500/15 text-sky-600 dark:text-sky-400'
+                          : 'bg-amber-100/70 dark:bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                      }`}
+                    >
                       {idx + 1}
                     </span>
                     <span className="truncate max-w-[180px] group-hover:underline">
-                      {ref.title || (ref.url ? new URL(ref.url).hostname : ref.source) || 'Source'}
+                      {ref.title ||
+                        (ref.url ? new URL(ref.url).hostname : ref.source) ||
+                        'Source'}
                     </span>
                   </a>
                 );
@@ -313,10 +318,9 @@ function ExecutionView({
       >
         {/* Avatar */}
         <div className="relative flex-shrink-0">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-r from-cyan-500 to-purple-500 flex items-center justify-center">
-            <Sparkles className="w-4 h-4 text-white animate-pulse" />
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-sky-500 to-teal-500 flex items-center justify-center shadow-sm">
+            <Sparkles className="w-4 h-4 text-white" />
           </div>
-          <div className="absolute inset-0 bg-violet-500/20 dark:bg-purple-500/30 rounded-full blur-lg animate-pulse" />
         </div>
 
         {/* Content */}

@@ -1,5 +1,6 @@
 // Components barrel export
 export { default as AgentStep } from './AgentStep.jsx';
+export { default as AgentLoopBar } from './AgentLoopBar.jsx';
 export { default as ChatInput } from './ChatInput.jsx';
 export { default as EmptyState } from './EmptyState.jsx';
 export { default as ExecutionView } from './ExecutionView.jsx';
