@@ -91,7 +91,21 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
 
   switch (data.type) {
     case WEBSOCKET_EVENTS.STATUS:
-      // Initial acknowledgment - no action needed
+      // Ropex / API status — keep loop UI message in sync
+      setCurrentExecution((prev) => {
+        if (!prev) return prev;
+        const stage = data.stage || data.data?.stage || prev.stage;
+        const stageMessage =
+          data.message || data.data?.message || prev.stageMessage;
+        return {
+          ...prev,
+          stage: stage === 'received' || stage === 'ropex_submit' || stage === 'ropex_accepted'
+            ? 'initializing'
+            : (stage || prev.stage),
+          stageMessage,
+          engine: data.data?.engine || prev.engine,
+        };
+      });
       break;
 
     case WEBSOCKET_EVENTS.STAGE:
@@ -99,6 +113,7 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
         ...prev,
         stage: data.stage,
         stageMessage: data.message,
+        isLoading: data.stage === 'initializing' ? true : prev?.isLoading,
       }));
       // Update loading message with stage info
       setMessages((msgs) => {
@@ -143,15 +158,19 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
           if (status === 'complete') return AGENT_STATUS.COMPLETE;
           if (status === 'running') return AGENT_STATUS.RUNNING;
           if (status === 'pending') return AGENT_STATUS.PENDING;
+          if (status === 'error' || status === 'failed') return AGENT_STATUS.ERROR;
           return status || AGENT_STATUS.PENDING;
         };
+
+        // Ropex may send plan with agents JSON, or only message/stages — stay resilient
+        const planAgents = Array.isArray(data.data?.agents) ? data.data.agents : [];
         
         // Build merged agents list
-        const newPlanAgentIds = new Set(data.data.agents.map(a => a.agent_id));
+        const newPlanAgentIds = new Set(planAgents.map(a => a.agent_id));
         const mergedAgents = [];
         
         // First, process all agents from the new plan (preserving existing state)
-        for (const agent of data.data.agents) {
+        for (const agent of planAgents) {
           const existing = existingAgentStates.get(agent.agent_id);
           if (existing) {
             // Preserve existing state - CRITICAL: keep logs, status, input, output, startTime, etc.
@@ -198,12 +217,25 @@ export function processWebSocketMessage(data, setCurrentExecution, setMessages, 
           }
         }
         
+        const totalAgents = data.data?.total_agents || planAgents.length || 0;
+        const totalLayers = data.data?.total_layers || 1;
         return {
           ...prev,
           stage: 'planned',
-          plan: data.data,
+          isLoading: false,
+          plan: {
+            ...data.data,
+            agents: planAgents,
+            total_agents: totalAgents,
+            total_layers: totalLayers,
+            description: data.data?.description || data.data?.message || prev?.plan?.description,
+          },
           agents: mergedAgents,
-          stageMessage: `Executing ${data.data.total_agents} agents across ${data.data.total_layers} layers`,
+          stageMessage:
+            totalAgents > 0
+              ? `Executing ${totalAgents} agents across ${totalLayers} layers`
+              : (data.data?.message || 'Ropex plan ready'),
+          engine: 'ropex',
         };
       });
       break;

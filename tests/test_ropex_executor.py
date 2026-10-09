@@ -24,6 +24,13 @@ class TestExecutionEngineConfig:
         assert config.execution_engine == "langgraph"
         assert config.ropex_base_url == ""
 
+    def test_ropex_auto_selected_when_base_url_set(self, monkeypatch):
+        monkeypatch.delenv("EXECUTION_ENGINE", raising=False)
+        monkeypatch.setenv("ROPEX_BASE_URL", "http://127.0.0.1:7780")
+        config = Config()
+        assert config.execution_engine == "ropex"
+        assert config.ropex_base_url == "http://127.0.0.1:7780"
+
     def test_ropex_engine_env(self, monkeypatch):
         monkeypatch.setenv("EXECUTION_ENGINE", "ropex")
         monkeypatch.setenv("ROPEX_BASE_URL", "http://127.0.0.1:7780/")
@@ -36,13 +43,14 @@ class TestExecutionEngineConfig:
         config = Config()
         assert config.ropex_async_drain is True
 
-    def test_ropex_requires_base_url(self, monkeypatch):
+    def test_ropex_defaults_local_base_url(self, monkeypatch):
         monkeypatch.setenv("EXECUTION_ENGINE", "ropex")
         monkeypatch.delenv("ROPEX_BASE_URL", raising=False)
         config = Config()
+        assert config.ropex_base_url == "http://127.0.0.1:7780"
         is_valid, error = config.validate()
-        assert is_valid is False
-        assert error is not None and "ROPEX_BASE_URL" in error
+        assert is_valid is True
+        assert error is None
 
     def test_ropex_valid_with_base_url(self, monkeypatch):
         monkeypatch.setenv("EXECUTION_ENGINE", "ropex")

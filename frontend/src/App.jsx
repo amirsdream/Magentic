@@ -67,6 +67,32 @@ function App() {
   const [showLogin, setShowLogin] = useState(false);
   const [viewingExecution, setViewingExecution] = useState(null);
   const [previewArtifact, setPreviewArtifact] = useState(null);
+  const [executionEngine, setExecutionEngine] = useState(null);
+  const [ropexStatus, setRopexStatus] = useState(null);
+
+  // Probe API health for execution-engine badge (Ropex vs LangGraph)
+  useEffect(() => {
+    let cancelled = false;
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const poll = async () => {
+      try {
+        const res = await fetch(`${apiBase}/health`);
+        if (!res.ok) return;
+        const body = await res.json();
+        if (cancelled) return;
+        setExecutionEngine(body.execution_engine || null);
+        setRopexStatus(body.ropex?.status || null);
+      } catch {
+        /* API may still be starting */
+      }
+    };
+    poll();
+    const id = setInterval(poll, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
 
   // WebSocket connection
   const { isConnected, sendMessage } = useWebSocket(
@@ -167,6 +193,8 @@ function App() {
           onToggleWorkflow={toggleAgentFlow}
           showWorkflow={showAgentFlow}
           hasActiveExecution={!!currentExecution && currentExecution.stage !== 'complete' && currentExecution.stage !== 'stopped'}
+          executionEngine={executionEngine}
+          ropexStatus={ropexStatus}
         />
 
         <div className="flex-1 flex overflow-hidden">

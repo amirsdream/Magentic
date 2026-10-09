@@ -8,6 +8,7 @@ docs/
 ├── AUTHENTICATION.md    # JWT auth, usage stats
 ├── OBSERVABILITY.md     # Prometheus, Grafana, Loki
 ├── RAG_AND_TOOLS.md     # RAG and MCP setup
+├── ROPEX.md             # Ropex execution engine integration
 ├── architecture_diagram.svg
 └── sphinx/              # Sphinx API documentation
     ├── conf.py
@@ -41,6 +42,7 @@ cd docs/sphinx && make livehtml
 | [Authentication](AUTHENTICATION.md) | JWT auth, usage stats |
 | [Observability](OBSERVABILITY.md) | Prometheus, Grafana, Loki |
 | [RAG & Tools](RAG_AND_TOOLS.md) | RAG setup, MCP integration |
+| [Ropex](ROPEX.md) | Ropex as Magentic execution engine |
 
 ## API Reference
 
