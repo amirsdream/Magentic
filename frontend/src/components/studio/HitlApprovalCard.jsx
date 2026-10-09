@@ -44,7 +44,7 @@ export default function HitlApprovalCard({
             className="mt-1 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300"
           >
             {approval.message ||
-              'Review the YAML and steps, then approve to drain the Ropex pipeline.'}
+              'Review the visual workflow and step actions, then approve to run the pipeline.'}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
             <span className="font-mono tabular-nums">

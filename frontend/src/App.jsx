@@ -193,7 +193,7 @@ function App() {
           description: 'Research and synthesize an answer',
           workflow_yaml: '',
           stages: 3,
-          message: 'Review the workflow YAML and steps, then approve to run.',
+          message: 'Review the visual workflow and step actions, then approve to run.',
         },
       };
     }
