@@ -1,21 +1,41 @@
 /**
- * StudioWorkspace — chat | visual workflow orchestrator | agent actions
+ * StudioWorkspace — workflow-first navigation:
+ * 1) list of workflows
+ * 2) open one → chat + visual flow + actions inside
  */
 
-import React, { useState, useCallback } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
-import { Workflow, ListTree, MessageSquare } from 'lucide-react';
-import ChatArea from '../ChatArea';
-import EnhancedChatInput from '../EnhancedChatInput';
-import HitlApprovalCard from './HitlApprovalCard';
-import WorkflowOrchestrator from './WorkflowOrchestrator';
-import AgentActionFlow from './AgentActionFlow';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import WorkflowList from './WorkflowList';
+import WorkflowDetail from './WorkflowDetail';
+import {
+  workflowFromExecution,
+  mergeLiveIntoWorkflow,
+  emptyWorkflow,
+  loadWorkflowLibrary,
+  saveWorkflowToLibrary,
+} from '../../utils/workflowModel';
 
-const MOBILE_TABS = [
-  { id: 'chat', label: 'Chat', icon: MessageSquare },
-  { id: 'flow', label: 'Workflow', icon: Workflow },
-  { id: 'actions', label: 'Actions', icon: ListTree },
-];
+function buildCatalog({ liveWorkflow, historyWorkflows, saved }) {
+  const items = [];
+  if (liveWorkflow) {
+    items.push({
+      ...liveWorkflow,
+      _bucket: 'live',
+      name: liveWorkflow.name || 'Live run',
+    });
+  }
+  historyWorkflows.forEach((w) => {
+    if (!items.some((i) => i.id === w.id)) {
+      items.push({ ...w, _bucket: 'history' });
+    }
+  });
+  saved.forEach((w) => {
+    if (!items.some((i) => i.id === w.id)) {
+      items.push({ ...w, _bucket: w.source === 'draft' ? 'draft' : 'saved' });
+    }
+  });
+  return items;
+}
 
 export default function StudioWorkspace({
   messages,
@@ -32,146 +52,130 @@ export default function StudioWorkspace({
   isProcessing,
   disabled,
   disabledMessage,
-  showSuggestions,
 }) {
-  const [mobileTab, setMobileTab] = useState('chat');
-  const [selectedStepId, setSelectedStepId] = useState(null);
-  const [activeWorkflow, setActiveWorkflow] = useState(null);
+  const [view, setView] = useState('list'); // 'list' | 'detail'
+  const [saved, setSaved] = useState(() => loadWorkflowLibrary());
+  const [openWorkflow, setOpenWorkflow] = useState(null);
+  const liveIdRef = useRef(null);
+  const demoEnteredRef = useRef(false);
 
-  const approval = currentExecution?.approval || null;
-  const awaitingApproval =
-    currentExecution?.stage === 'awaiting_approval' || Boolean(approval?.pipeline_id);
-
-  const handleApprove = useCallback(
-    (pipelineId) => {
-      onApprove?.(pipelineId);
-    },
-    [onApprove]
+  const liveWorkflow = useMemo(
+    () => workflowFromExecution(currentExecution, { source: 'live' }),
+    [currentExecution]
   );
 
-  const handleReject = useCallback(
-    (pipelineId) => {
-      onReject?.(pipelineId);
-    },
-    [onReject]
+  const historyWorkflows = useMemo(
+    () =>
+      (executionHistory || [])
+        .map((ex, idx) =>
+          workflowFromExecution(ex, {
+            id: ex.pipelineId || ex.session_id || `hist_${idx}`,
+            name: ex.query || ex.plan?.description || `Run ${idx + 1}`,
+            source: 'history',
+          })
+        )
+        .filter(Boolean),
+    [executionHistory]
   );
 
-  const selectedStep = activeWorkflow?.steps?.find((s) => s.id === selectedStepId) || null;
+  const catalog = useMemo(
+    () => buildCatalog({ liveWorkflow, historyWorkflows, saved }),
+    [liveWorkflow, historyWorkflows, saved]
+  );
 
-  // Auto-select running step when execution updates
-  React.useEffect(() => {
-    const agents = currentExecution?.agents;
-    if (!Array.isArray(agents)) return;
-    const running = agents.find((a) => a.status === 'running');
-    if (running?.agent_id) {
-      setSelectedStepId(running.agent_id);
+  // When a new live pipeline appears, open it automatically
+  useEffect(() => {
+    if (!liveWorkflow) return;
+    if (liveWorkflow.id === liveIdRef.current) {
+      // Keep open workflow synced with live status if we're inside it
+      if (view === 'detail' && openWorkflow?.id === liveWorkflow.id) {
+        setOpenWorkflow(mergeLiveIntoWorkflow(liveWorkflow, currentExecution));
+      }
+      return;
     }
-  }, [currentExecution?.agents]);
+    liveIdRef.current = liveWorkflow.id;
+    setOpenWorkflow(mergeLiveIntoWorkflow(liveWorkflow, currentExecution));
+    setView('detail');
+  }, [liveWorkflow, currentExecution, view, openWorkflow?.id]);
 
-  const chatColumn = (
-    <div className="flex h-full min-w-0 flex-col">
-      <ChatArea
+  // Demo modes: land inside the demo workflow
+  useEffect(() => {
+    if (demoEnteredRef.current) return;
+    if (typeof window === 'undefined') return;
+    const demo = new URLSearchParams(window.location.search).get('demo');
+    if ((demo === 'hitl' || demo === 'loop') && liveWorkflow) {
+      demoEnteredRef.current = true;
+      setOpenWorkflow(mergeLiveIntoWorkflow(liveWorkflow, currentExecution));
+      setView('detail');
+    }
+  }, [liveWorkflow, currentExecution]);
+
+  const handleOpen = useCallback(
+    (item) => {
+      const wf =
+        item._bucket === 'live'
+          ? mergeLiveIntoWorkflow(item, currentExecution)
+          : { ...item };
+      setOpenWorkflow(wf);
+      setView('detail');
+    },
+    [currentExecution]
+  );
+
+  const handleCreate = useCallback(() => {
+    const wf = emptyWorkflow('Untitled workflow');
+    const next = saveWorkflowToLibrary(wf);
+    setSaved(next);
+    setOpenWorkflow(wf);
+    setView('detail');
+  }, []);
+
+  const handleBack = useCallback(() => {
+    setView('list');
+    // Refresh library in case detail saved
+    setSaved(loadWorkflowLibrary());
+  }, []);
+
+  const handleSaved = useCallback((library, draft) => {
+    setSaved(library);
+    if (draft) setOpenWorkflow(draft);
+  }, []);
+
+  if (view === 'detail' && openWorkflow) {
+    return (
+      <WorkflowDetail
+        workflow={openWorkflow}
+        onWorkflowChange={setOpenWorkflow}
+        onBack={handleBack}
+        onSaved={handleSaved}
+        currentExecution={
+          liveWorkflow && openWorkflow.id === liveWorkflow.id
+            ? currentExecution
+            : openWorkflow.source === 'live'
+              ? currentExecution
+              : null
+        }
         messages={messages}
-        currentExecution={currentExecution}
         onRetry={onRetry}
         onPreviewArtifact={onPreviewArtifact}
         showExecutionDetails={showExecutionDetails}
-        studioMode
-      />
-
-      <AnimatePresence>
-        {awaitingApproval && (
-          <HitlApprovalCard
-            approval={approval}
-            onApprove={handleApprove}
-            onReject={handleReject}
-            disabled={!isConnected}
-          />
-        )}
-      </AnimatePresence>
-
-      <EnhancedChatInput
         onSend={onSend}
         onStop={onStop}
+        onApprove={onApprove}
+        onReject={onReject}
         isConnected={isConnected}
-        disabled={disabled || awaitingApproval}
         isProcessing={isProcessing}
-        showSuggestions={showSuggestions}
-        disabledMessage={
-          awaitingApproval
-            ? 'Approve or reject the workflow to continue…'
-            : disabledMessage
-        }
+        disabled={disabled}
+        disabledMessage={disabledMessage}
       />
-    </div>
-  );
+    );
+  }
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col">
-      <div className="flex lg:hidden border-b border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-950/70 backdrop-blur-sm">
-        {MOBILE_TABS.map(({ id, label, icon: Icon }) => {
-          const active = mobileTab === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setMobileTab(id)}
-              className={`relative flex-1 flex items-center justify-center gap-1.5 py-2.5 text-[12px] font-medium transition-colors ${
-                active
-                  ? 'text-sky-700 dark:text-sky-300'
-                  : 'text-slate-500 dark:text-slate-400'
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {label}
-              {active && (
-                <motion.span
-                  layoutId="studio-mobile-tab"
-                  className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-sky-500"
-                />
-              )}
-              {id === 'chat' && awaitingApproval && (
-                <span className="absolute top-1.5 right-[18%] h-1.5 w-1.5 rounded-full bg-amber-500" />
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="flex flex-1 min-h-0">
-        <div
-          className={`min-w-0 flex-[1_1_36%] flex-col ${
-            mobileTab === 'chat' ? 'flex' : 'hidden'
-          } lg:flex`}
-        >
-          {chatColumn}
-        </div>
-
-        <div
-          className={`w-full lg:flex-[1_1_42%] lg:min-w-[320px] border-l border-slate-200/80 dark:border-slate-800 bg-white/40 dark:bg-slate-950/30 flex-col ${
-            mobileTab === 'flow' ? 'flex' : 'hidden'
-          } lg:flex`}
-        >
-          <WorkflowOrchestrator
-            execution={currentExecution}
-            executionHistory={executionHistory}
-            selectedStepId={selectedStepId}
-            onSelectStep={setSelectedStepId}
-            onWorkflowChange={setActiveWorkflow}
-          />
-        </div>
-
-        <div
-          className={`w-full lg:w-[min(280px,26%)] lg:min-w-[220px] border-l border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 flex-col ${
-            mobileTab === 'actions' ? 'flex' : 'hidden'
-          } lg:flex`}
-        >
-          <AgentActionFlow
-            step={selectedStep}
-            workflowName={activeWorkflow?.name}
-          />
-        </div>
-      </div>
-    </div>
+    <WorkflowList
+      workflows={catalog}
+      onOpen={handleOpen}
+      onCreate={handleCreate}
+    />
   );
 }

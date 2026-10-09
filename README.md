@@ -109,7 +109,7 @@ ROPEX_BASE_URL=http://127.0.0.1:7780
 ROPEX_REQUIRE_APPROVAL=true
 ```
 
-Studio UI: chat + visual workflow orchestrator (loadable/editable) + per-step agent actions, with human-in-the-loop approve-before-drain when `ROPEX_REQUIRE_APPROVAL=true`.
+Studio UI: workflow list → open a workflow (chat + visual flow + step actions), with human-in-the-loop approve-before-drain when `ROPEX_REQUIRE_APPROVAL=true`.
 
 ## Agent Roles
 

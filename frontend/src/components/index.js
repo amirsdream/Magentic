@@ -25,6 +25,8 @@ export { default as ChatArea } from './ChatArea.jsx';
 // Studio workspace
 export {
   StudioWorkspace,
+  WorkflowList,
+  WorkflowDetail,
   WorkflowOrchestrator,
   WorkflowCanvas,
   AgentActionFlow,

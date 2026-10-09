@@ -205,7 +205,7 @@ const ChatArea = memo(function ChatArea({
       className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-5 scrollbar-hide"
     >
       {messages.length === 0 && !currentExecution && !showLoopDemo && !showHitlDemo && (
-        <EmptyState studioMode={studioMode} />
+        <EmptyState studioMode={studioMode} compact={studioMode} />
       )}
 
       {(showLoopDemo || showHitlDemo) && (

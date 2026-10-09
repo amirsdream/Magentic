@@ -5,7 +5,22 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 
-function EmptyState({ studioMode = false }) {
+function EmptyState({ studioMode = false, compact = false }) {
+  if (compact) {
+    return (
+      <div className="flex h-full items-center justify-center px-6 text-center">
+        <div>
+          <p className="text-[14px] font-medium text-slate-700 dark:text-slate-200">
+            Chat in this workflow
+          </p>
+          <p className="mt-1 max-w-sm text-[13px] leading-relaxed text-slate-500 dark:text-slate-400">
+            Send a message to plan or run. Approve when the flow is ready.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative flex flex-col items-center justify-center h-full text-center px-6 overflow-hidden">
       <div

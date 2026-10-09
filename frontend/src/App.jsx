@@ -1,6 +1,6 @@
 /**
- * Main App — Magentic studio workspace
- * Chat + live YAML workflow + steps rail + human-in-the-loop
+ * Main App — Magentic studio
+ * Workflow list → open workflow (chat + visual flow + actions) + HITL
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
